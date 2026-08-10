@@ -150,8 +150,9 @@ Item {
                 }
             }
             onActivated: {
-                if (greeterController.state === "user-selection")
-                    greeterController.begin(currentValue)
+                if (greeterController.state !== "user-selection")
+                    greeterController.cancel()
+                greeterController.begin(currentValue)
             }
             KeyNavigation.tab: response.visible ? response : primary
             KeyNavigation.backtab: panel.lastSystemAction

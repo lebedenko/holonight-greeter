@@ -35,10 +35,20 @@ public:
 class FakeAccounts final : public Greeter::IAccountSource {
 public:
   int calls = 0;
-  QList<Greeter::User> users(const QStringList &, int, int,
-                             const QStringList &) override {
+  QList<Greeter::User> records{{"alice", "Alice", {}, 1000}};
+  QStringList include;
+  QStringList exclude;
+  int minUid = 0;
+  int maxUid = 0;
+  QList<Greeter::User> users(const QStringList &included, int minimumUid,
+                             int maximumUid,
+                             const QStringList &excluded) override {
     ++calls;
-    return {{"alice", "Alice", {}, 1000}};
+    include = included;
+    exclude = excluded;
+    minUid = minimumUid;
+    maxUid = maximumUid;
+    return records;
   }
 };
 class FakePower final : public Greeter::IPowerService {
@@ -242,38 +252,93 @@ TEST(Controller, GatesPowerOnExactCapability) {
   EXPECT_EQ(power.reboots, 1);
 }
 
-TEST(Demo, AvoidsSystemServicesButDiscoversSessions) {
+TEST(Demo, DiscoversConfiguredUsersAndSessionsWithoutPrivilegedServices) {
   FakeTransport transport;
   FakeAccounts accounts;
+  accounts.records = {{"alice", "Alice", "/avatars/alice.png", 1100},
+                      {"bob", "Bob", "/avatars/bob.png", 1200}};
   FakePower power;
   FakeFiles files;
   files.records += {"plasma.desktop", "Plasma", {"startplasma-wayland"}};
   Greeter::Config config;
   config.userMode = Greeter::Config::UserMode::Manual;
+  config.minUid = 1100;
+  config.maxUid = 1200;
+  config.includeUsers = {"alice", "bob"};
+  config.excludeUsers = {"guest"};
   Greeter::Controller controller(true, "default", config,
                                  "/definitely/unreadable/state", &transport,
                                  &accounts, &power, &files);
-  EXPECT_EQ(accounts.calls, 0);
+  EXPECT_EQ(accounts.calls, 1);
+  EXPECT_EQ(accounts.include, config.includeUsers);
+  EXPECT_EQ(accounts.exclude, config.excludeUsers);
+  EXPECT_EQ(accounts.minUid, 1100);
+  EXPECT_EQ(accounts.maxUid, 1200);
   EXPECT_EQ(files.discoveryCalls, 1);
   EXPECT_EQ(power.queries, 0);
-  ASSERT_EQ(controller.users().size(), 1);
-  EXPECT_FALSE(controller.users()
-                   .first()
-                   .toMap()
-                   .value("username")
-                   .toString()
-                   .isEmpty());
+  ASSERT_EQ(controller.users().size(), 2);
+  EXPECT_EQ(controller.users()[0].toMap().value("username"), "alice");
+  EXPECT_EQ(controller.users()[0].toMap().value("avatar"),
+            "/avatars/alice.png");
+  EXPECT_EQ(controller.users()[1].toMap().value("username"), "bob");
+  EXPECT_EQ(controller.users()[1].toMap().value("avatar"), "/avatars/bob.png");
   ASSERT_EQ(controller.sessions().size(), 2);
   EXPECT_EQ(controller.sessions().first().toMap().value("id"), "holo.desktop");
   EXPECT_EQ(controller.selectedSessionName(), "Holo");
   controller.setSelectedSession("plasma.desktop");
   EXPECT_EQ(controller.selectedSessionName(), "Plasma");
   EXPECT_FALSE(controller.manualMode());
+  controller.requestPowerOff();
+  controller.requestReboot();
+  EXPECT_EQ(power.offs, 0);
+  EXPECT_EQ(power.reboots, 0);
+  EXPECT_EQ(files.saveCalls, 0);
+}
+
+TEST(Demo, FallsBackToProcessAccountWhenDiscoveryIsEmpty) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  accounts.records.clear();
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller controller(true, "default", {}, "/unused", &transport,
+                                 &accounts, &power, &files);
+  EXPECT_EQ(accounts.calls, 1);
+  ASSERT_EQ(controller.users().size(), 1);
+  EXPECT_FALSE(
+      controller.users()[0].toMap().value("username").toString().isEmpty());
+}
+
+TEST(Demo, SwitchingUsersRestartsTheDeterministicPrompt) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  accounts.records = {{"alice", "Alice", "/avatars/alice.png", 1000},
+                      {"bob", "Bob", "/avatars/bob.png", 1001}};
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller controller(true, "otp", {}, "/unused", &transport,
+                                 &accounts, &power, &files);
+  controller.begin("alice");
+  controller.respond("demo-password");
+  EXPECT_EQ(controller.prompt(), "One-time code");
+  controller.begin("bob");
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.prompt(), "Password");
+  EXPECT_TRUE(controller.secret());
+  controller.respond("demo-password");
+  EXPECT_EQ(controller.prompt(), "One-time code");
+  controller.respond("123456");
+  EXPECT_EQ(controller.state(), "authenticated");
+  EXPECT_TRUE(transport.path.isEmpty());
+  EXPECT_TRUE(transport.sent.isEmpty());
+  EXPECT_EQ(power.queries, 0);
+  EXPECT_EQ(files.saveCalls, 0);
 }
 
 TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
   FakeTransport transport;
   FakeAccounts accounts;
+  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
   FakePower power;
   FakeFiles files;
   Greeter::Controller controller(true, "default", {}, "/unused", &transport,
@@ -285,6 +350,10 @@ TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
   EXPECT_TRUE(controller.secret());
   controller.respond("demo-password");
   EXPECT_EQ(controller.state(), "authenticated");
+  controller.begin("bob");
+  EXPECT_EQ(controller.prompt(), "Password");
+  controller.respond("demo-password");
+  EXPECT_EQ(controller.state(), "authenticated");
   EXPECT_TRUE(transport.path.isEmpty());
   EXPECT_TRUE(transport.sent.isEmpty());
   EXPECT_EQ(transport.disconnections, 0);
@@ -294,6 +363,7 @@ TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
 TEST(Demo, WrongPasswordFailsAndCanRetry) {
   FakeTransport transport;
   FakeAccounts accounts;
+  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
   FakePower power;
   FakeFiles files;
   Greeter::Controller controller(true, "wrong-password", {}, "/unused",
@@ -308,11 +378,16 @@ TEST(Demo, WrongPasswordFailsAndCanRetry) {
   controller.begin(username);
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_TRUE(controller.secret());
+  controller.begin("bob");
+  EXPECT_EQ(controller.prompt(), "Password");
+  controller.respond("wrong");
+  EXPECT_EQ(controller.state(), "failed");
 }
 
 TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
   FakeTransport transport;
   FakeAccounts accounts;
+  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
   FakePower power;
   FakeFiles files;
   Greeter::Controller controller(true, "otp", {}, "/unused", &transport,
@@ -327,11 +402,18 @@ TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
   EXPECT_FALSE(controller.secret());
   controller.respond("123456");
   EXPECT_EQ(controller.state(), "authenticated");
+  controller.begin("bob");
+  EXPECT_EQ(controller.prompt(), "Password");
+  controller.respond("demo-password");
+  EXPECT_EQ(controller.prompt(), "One-time code");
+  controller.respond("123456");
+  EXPECT_EQ(controller.state(), "authenticated");
 }
 
 TEST(Demo, FingerprintCompletesAfterInformationalPrompt) {
   FakeTransport transport;
   FakeAccounts accounts;
+  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
   FakePower power;
   FakeFiles files;
   Greeter::Controller controller(true, "fingerprint", {}, "/unused", &transport,
@@ -342,6 +424,9 @@ TEST(Demo, FingerprintCompletesAfterInformationalPrompt) {
   EXPECT_EQ(controller.state(), "informational-prompt");
   EXPECT_EQ(controller.prompt(), "Touch the fingerprint sensor");
   EXPECT_FALSE(controller.secret());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QString("authenticated"), 1500);
+  controller.begin("bob");
+  EXPECT_EQ(controller.state(), "informational-prompt");
   QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QString("authenticated"), 1500);
   EXPECT_GT(changed.count(), 1);
 }

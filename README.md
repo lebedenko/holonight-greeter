@@ -17,8 +17,8 @@ task test
 ```
 
 Production accepts `--config PATH` and `--state PATH`. Demo scenarios are `default`, `wrong-password`, `otp`, and
-`fingerprint`; specifying a scenario implies `--demo`. Demo keeps authentication deterministic and is independent of
-configuration, saved state, greetd, AccountsService, and logind, while still showing the local identity/avatar and
-discovering the machine's installed Wayland sessions.
+`fingerprint`; specifying a scenario implies `--demo`. Demo uses the configured read-only account and session
+discovery, including local display names and avatars. Authentication, saved state, greetd communication, and logind
+actions remain deterministic simulations with no privileged side effects.
 
 See [the MVP SDD](docs/sdd/greeter-mvp/SPEC.md) and [Cage deployment guide](docs/CAGE.md).

@@ -79,6 +79,7 @@ private:
   bool canPowerOff_ = false;
   bool canReboot_ = false;
   int demoStep_ = 0;
+  quint64 demoAttempt_ = 0;
   Stage stage_ = Stage::Idle;
 };
 } // namespace Greeter

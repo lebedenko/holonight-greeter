@@ -43,7 +43,10 @@ Controller::Controller(bool demo, QString scenario, Config config,
       transport_(transport), power_(power), files_(files) {
   if (demo_) {
     config_.userMode = Config::UserMode::List;
-    userRecords_ = {demoUser()};
+    userRecords_ = accounts->users(config_.includeUsers, config_.minUid,
+                                   config_.maxUid, config_.excludeUsers);
+    if (userRecords_.isEmpty())
+      userRecords_ = {demoUser()};
     sessionRecords_ =
         files_->sessions(config_.sessionDirectories, config_.includeSessions,
                          config_.excludeSessions);
@@ -130,9 +133,11 @@ const Session *Controller::selected() const {
   return nullptr;
 }
 void Controller::begin(const QString &user) {
+  const QString candidate = user.trimmed();
+  if (demo_ && !activeUser_.isEmpty() && activeUser_ != candidate)
+    cancel();
   if (stage_ != Stage::Idle && stage_ != Stage::Failed)
     return;
-  const QString candidate = user.trimmed();
   if (candidate.isEmpty() || !selected())
     return setState("user-selection",
                     selected() ? QStringLiteral("Choose a user")
@@ -150,15 +155,16 @@ void Controller::begin(const QString &user) {
   prompt_.clear();
   secret_ = false;
   if (demo_) {
+    const quint64 attempt = ++demoAttempt_;
     prompt_ = scenario_ == "fingerprint" ? "Touch the fingerprint sensor"
                                          : "Password";
     secret_ = scenario_ != "fingerprint";
     stage_ = Stage::Authenticating;
     setState(secret_ ? "input-prompt" : "informational-prompt");
     if (scenario_ == "fingerprint")
-      QTimer::singleShot(750, this, [this] {
+      QTimer::singleShot(750, this, [this, attempt] {
         if (demo_ && stage_ == Stage::Authenticating &&
-            scenario_ == "fingerprint") {
+            scenario_ == "fingerprint" && demoAttempt_ == attempt) {
           stage_ = Stage::Complete;
           prompt_.clear();
           setState("authenticated",
@@ -203,6 +209,8 @@ void Controller::cancel() {
     transport_->cancel();
   if (!demo_)
     transport_->disconnectFromServer();
+  if (demo_)
+    ++demoAttempt_;
   activeUser_.clear();
   prompt_.clear();
   secret_ = false;

@@ -7,8 +7,9 @@ isolated from Qt Quick. `GreetdClient` owns framed socket I/O; `GreeterControlle
 Account, power, clock, transport, and filesystem boundaries are injectable so automated tests use fakes and temporary
 directories only.
 
-The executable selects production or demo adapters, exposes one controller instance, and loads the `Holonight.Greeter`
-QML module. Production uses a fullscreen window; demo is windowed and synthesizes prompts locally.
+The executable selects production or demo behavior, exposes one controller instance, and loads the `Holonight.Greeter`
+QML module. Production uses a fullscreen window; demo is windowed, discovers accounts and sessions through the same
+read-only adapters, and synthesizes prompts and system actions locally.
 
 ## Data flow
 

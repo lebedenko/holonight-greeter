@@ -17,7 +17,8 @@ int main(int argc, char **argv) {
       {"config", "Configuration file", "path", "/etc/holonight/greeter.toml"});
   parser.addOption(
       {"state", "State file", "path", "/var/lib/holonight-greeter/state.json"});
-  parser.addOption({"demo", "Run windowed without system services"});
+  parser.addOption(
+      {"demo", "Run windowed with simulated authentication and actions"});
   parser.addOption({"demo-scenario", "Demo scenario", "name", "default"});
   parser.process(app);
   const QString scenario = parser.value("demo-scenario");
@@ -26,8 +27,7 @@ int main(int argc, char **argv) {
     parser.showHelp(2);
 
   const bool demo = parser.isSet("demo") || parser.isSet("demo-scenario");
-  const auto config = demo ? Greeter::ConfigResult{}
-                           : Greeter::loadConfig(parser.value("config"));
+  const auto config = Greeter::loadConfig(parser.value("config"));
   Greeter::GreetdClient transport;
   Greeter::SystemAccountSource accounts;
   Greeter::LogindPowerService power;
