@@ -1,0 +1,21 @@
+version = 1
+
+[users]
+mode = "list"
+min_uid = 1000
+max_uid = 59999
+include = []
+exclude = ["greeter", "nobody"]
+show_avatars = true
+
+[sessions]
+directories = ["/usr/local/share/wayland-sessions", "/usr/share/wayland-sessions"]
+include = []
+exclude = []
+default = "holonight-hyprland.desktop"
+
+[keyboard]
+label = "EN"
+
+[appearance]
+background = "/usr/share/holonight-greeter/backgrounds/wallpaper1.png"

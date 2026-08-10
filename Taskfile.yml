@@ -1,0 +1,16 @@
+version: '3'
+tasks:
+  configure:
+    cmds: [cmake -S . -B build -G Ninja -DBUILD_TESTING=ON]
+  build:
+    deps: [configure]
+    cmds: [cmake --build build]
+  test:
+    deps: [build]
+    cmds: [ctest --test-dir build --output-on-failure]
+  lint:
+    deps: [build]
+    cmds:
+      - cmake --build build --target format-check
+      - qmllint -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml
+      - git diff --check

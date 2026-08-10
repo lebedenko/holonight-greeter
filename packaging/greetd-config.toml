@@ -1,0 +1,7 @@
+# Copy the relevant values into /etc/greetd/config.toml after validating paths.
+[terminal]
+vt = 1
+
+[default_session]
+command = "dbus-run-session cage -s -m last -d -- holonight-greeter"
+user = "greeter"
