@@ -23,18 +23,21 @@ public:
   QList<QJsonObject> sent;
   QString path;
   int cancellations = 0;
+  int disconnections = 0;
   void connectTo(const QString &value) override { path = value; }
   void send(const QJsonObject &message) override { sent += message; }
   void cancel() override { ++cancellations; }
-  void disconnectFromServer() override {}
+  void disconnectFromServer() override { ++disconnections; }
   void connectNow() { emit connected(); }
   void reply(const QJsonObject &value) { emit message(value); }
   void disconnectNow() { emit disconnected(); }
 };
 class FakeAccounts final : public Greeter::IAccountSource {
 public:
+  int calls = 0;
   QList<Greeter::User> users(const QStringList &, int, int,
                              const QStringList &) override {
+    ++calls;
     return {{"alice", "Alice", {}, 1000}};
   }
 };
@@ -58,12 +61,16 @@ public:
   QString savedUser;
   QString savedSession;
   bool savedManual = false;
+  int discoveryCalls = 0;
+  int saveCalls = 0;
   QList<Greeter::Session> sessions(const QStringList &, const QStringList &,
                                    const QStringList &) override {
+    ++discoveryCalls;
     return records;
   }
   bool save(const QString &, const QString &user, const QString &session,
             bool manual, QString *) override {
+    ++saveCalls;
     savedUser = user;
     savedSession = session;
     savedManual = manual;
@@ -235,6 +242,96 @@ TEST(Controller, GatesPowerOnExactCapability) {
   EXPECT_EQ(power.reboots, 1);
 }
 
+TEST(Demo, UsesOnlySyntheticData) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Config config;
+  config.userMode = Greeter::Config::UserMode::Manual;
+  Greeter::Controller controller(true, "default", config,
+                                 "/definitely/unreadable/state", &transport,
+                                 &accounts, &power, &files);
+  EXPECT_EQ(accounts.calls, 0);
+  EXPECT_EQ(files.discoveryCalls, 0);
+  EXPECT_EQ(power.queries, 0);
+  ASSERT_EQ(controller.users().size(), 1);
+  EXPECT_EQ(controller.users().first().toMap().value("username"), "demo");
+  ASSERT_EQ(controller.sessions().size(), 1);
+  EXPECT_EQ(controller.sessions().first().toMap().value("id"), "demo.desktop");
+  EXPECT_FALSE(controller.manualMode());
+}
+
+TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller controller(true, "default", {}, "/unused", &transport,
+                                 &accounts, &power, &files);
+  controller.begin("demo");
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.prompt(), "Password");
+  EXPECT_TRUE(controller.secret());
+  controller.respond("demo-password");
+  EXPECT_EQ(controller.state(), "authenticated");
+  EXPECT_TRUE(transport.path.isEmpty());
+  EXPECT_TRUE(transport.sent.isEmpty());
+  EXPECT_EQ(transport.disconnections, 0);
+  EXPECT_EQ(files.saveCalls, 0);
+}
+
+TEST(Demo, WrongPasswordFailsAndCanRetry) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller controller(true, "wrong-password", {}, "/unused",
+                                 &transport, &accounts, &power, &files);
+  controller.begin("demo");
+  controller.respond("wrong");
+  EXPECT_EQ(controller.state(), "failed");
+  EXPECT_EQ(controller.status(), "Authentication failed");
+  EXPECT_EQ(transport.disconnections, 0);
+  controller.begin("demo");
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_TRUE(controller.secret());
+}
+
+TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller controller(true, "otp", {}, "/unused", &transport,
+                                 &accounts, &power, &files);
+  controller.begin("demo");
+  EXPECT_EQ(controller.prompt(), "Password");
+  EXPECT_TRUE(controller.secret());
+  controller.respond("demo-password");
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.prompt(), "One-time code");
+  EXPECT_FALSE(controller.secret());
+  controller.respond("123456");
+  EXPECT_EQ(controller.state(), "authenticated");
+}
+
+TEST(Demo, FingerprintCompletesAfterInformationalPrompt) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller controller(true, "fingerprint", {}, "/unused", &transport,
+                                 &accounts, &power, &files);
+  QSignalSpy changed(&controller, &Greeter::Controller::changed);
+  controller.begin("demo");
+  EXPECT_EQ(controller.state(), "informational-prompt");
+  EXPECT_EQ(controller.prompt(), "Touch the fingerprint sensor");
+  EXPECT_FALSE(controller.secret());
+  QTRY_COMPARE_WITH_TIMEOUT(controller.state(), QString("authenticated"), 1500);
+  EXPECT_GT(changed.count(), 1);
+}
+
 TEST(GreetdTransport, AcceptsFragmentedAndCoalescedNativeEndianFrames) {
   const QString socketPath =
       "/tmp/hgr-" + QUuid::createUuid().toString(QUuid::Id128);
@@ -287,15 +384,17 @@ TEST(GreetdTransport, RejectsOversizedAndMalformedFrames) {
   EXPECT_TRUE(failed.at(0).at(0).toString().contains("frame length"));
 }
 
-TEST(QmlSmoke, StartsEveryDemoScenarioOffscreen) {
-  for (const QString &scenario :
-       {"default", "wrong-password", "otp", "fingerprint"}) {
+TEST(DemoCli, StartsDocumentedCommandsOffscreen) {
+  const QList<QStringList> arguments{{"--demo"},
+                                     {"--demo-scenario", "wrong-password"},
+                                     {"--demo-scenario", "otp"},
+                                     {"--demo-scenario", "fingerprint"}};
+  for (const auto &commandArguments : arguments) {
     QProcess process;
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("QT_QPA_PLATFORM", "offscreen");
     process.setProcessEnvironment(environment);
-    process.start(GREETER_EXECUTABLE_PATH,
-                  {"--demo", "--demo-scenario", scenario});
+    process.start(GREETER_EXECUTABLE_PATH, commandArguments);
     ASSERT_TRUE(process.waitForStarted(2000))
         << process.errorString().toStdString();
     QTest::qWait(150);

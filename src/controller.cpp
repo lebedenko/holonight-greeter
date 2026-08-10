@@ -1,6 +1,7 @@
 #include "controller.h"
 #include "state.h"
 #include <QJsonArray>
+#include <QTimer>
 #include <QVariantMap>
 
 namespace Greeter {
@@ -11,24 +12,26 @@ Controller::Controller(bool demo, QString scenario, Config config,
     : QObject(parent), demo_(demo), scenario_(std::move(scenario)),
       config_(std::move(config)), statePath_(std::move(statePath)),
       transport_(transport), power_(power), files_(files) {
-  if (!manualMode())
-    userRecords_ = accounts->users(config_.includeUsers, config_.minUid,
-                                   config_.maxUid, config_.excludeUsers);
-  if (demo_ && !manualMode() && userRecords_.isEmpty())
+  if (demo_) {
+    config_.userMode = Config::UserMode::List;
     userRecords_ = {
         {QStringLiteral("demo"), QStringLiteral("Demo User"), {}, 1000}};
-  sessionRecords_ =
-      files_->sessions(config_.sessionDirectories, config_.includeSessions,
-                       config_.excludeSessions);
-  if (demo_ && sessionRecords_.isEmpty())
     sessionRecords_ = {{QStringLiteral("demo.desktop"),
                         QStringLiteral("HoloNight (Demo)"),
                         {QStringLiteral("/bin/true")}}};
+  } else if (!manualMode()) {
+    userRecords_ = accounts->users(config_.includeUsers, config_.minUid,
+                                   config_.maxUid, config_.excludeUsers);
+  }
+  if (!demo_)
+    sessionRecords_ =
+        files_->sessions(config_.sessionDirectories, config_.includeSessions,
+                         config_.excludeSessions);
   QStringList ids;
   for (const auto &session : sessionRecords_)
     ids += session.id;
-  selectedSession_ =
-      selectSession(loadState(statePath_), config_.defaultSession, ids);
+  selectedSession_ = selectSession(demo_ ? State{} : loadState(statePath_),
+                                   config_.defaultSession, ids);
 
   connect(transport_, &IGreetdTransport::connected, this, [this] {
     if (stage_ != Stage::Connecting)
@@ -107,15 +110,26 @@ void Controller::begin(const QString &user) {
                       QStringLiteral("Choose an available user"));
   }
   activeUser_ = candidate;
+  demoStep_ = 0;
   prompt_.clear();
   secret_ = false;
   if (demo_) {
-    prompt_ = scenario_ == "otp"           ? "One-time code"
-              : scenario_ == "fingerprint" ? "Touch the fingerprint sensor"
-                                           : "Password";
+    prompt_ = scenario_ == "fingerprint" ? "Touch the fingerprint sensor"
+                                         : "Password";
     secret_ = scenario_ != "fingerprint";
     stage_ = Stage::Authenticating;
-    return setState(secret_ ? "input-prompt" : "informational-prompt");
+    setState(secret_ ? "input-prompt" : "informational-prompt");
+    if (scenario_ == "fingerprint")
+      QTimer::singleShot(750, this, [this] {
+        if (demo_ && stage_ == Stage::Authenticating &&
+            scenario_ == "fingerprint") {
+          stage_ = Stage::Complete;
+          prompt_.clear();
+          setState("authenticated",
+                   "Authenticated — demo does not start a session");
+        }
+      });
+    return;
   }
   stage_ = Stage::Connecting;
   setState("connecting");
@@ -128,7 +142,13 @@ void Controller::respond(const QString &response) {
   if (demo_) {
     if (scenario_ == "wrong-password")
       fail(QStringLiteral("Authentication failed"));
-    else {
+    else if (scenario_ == "otp" && demoStep_++ == 0) {
+      bytes.fill('\0');
+      prompt_ = QStringLiteral("One-time code");
+      secret_ = false;
+      setState("input-prompt");
+      return;
+    } else {
       stage_ = Stage::Complete;
       setState("authenticated",
                "Authenticated — demo does not start a session");
@@ -145,7 +165,8 @@ void Controller::cancel() {
     return;
   if (!demo_ && stage_ != Stage::Connecting)
     transport_->cancel();
-  transport_->disconnectFromServer();
+  if (!demo_)
+    transport_->disconnectFromServer();
   activeUser_.clear();
   prompt_.clear();
   secret_ = false;
@@ -216,7 +237,8 @@ void Controller::fail(const QString &reason) {
   stage_ = Stage::Failed;
   prompt_.clear();
   secret_ = false;
-  transport_->disconnectFromServer();
+  if (!demo_)
+    transport_->disconnectFromServer();
   setState("failed", reason);
 }
 void Controller::setState(QString state, QString status) {

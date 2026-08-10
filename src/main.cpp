@@ -24,8 +24,9 @@ int main(int argc, char **argv) {
           scenario))
     parser.showHelp(2);
 
-  const bool demo = parser.isSet("demo");
-  const auto config = Greeter::loadConfig(parser.value("config"));
+  const bool demo = parser.isSet("demo") || parser.isSet("demo-scenario");
+  const auto config = demo ? Greeter::ConfigResult{}
+                           : Greeter::loadConfig(parser.value("config"));
   Greeter::GreetdClient transport;
   Greeter::SystemAccountSource accounts;
   Greeter::LogindPowerService power;
