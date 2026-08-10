@@ -133,7 +133,7 @@ Item {
             textRole: "displayName"
             valueRole: "username"
             enabled: count > 1 && !["starting", "authenticated"].includes(greeterController.state)
-            font.pixelSize: 30
+            font.pointSize: 22.5
             contentItem: Label {
                 text: userSelector.displayText
                 color: "#f3f5fc"
@@ -173,7 +173,7 @@ Item {
             Layout.alignment: Qt.AlignHCenter
             text: "Local account"
             color: "#5e7da7"
-            font.pixelSize: 20
+            font.pointSize: 15
         }
 
         Item { Layout.preferredHeight: 34 }
@@ -182,7 +182,7 @@ Item {
             visible: response.visible
             text: greeterController.prompt
             color: "#7194c1"
-            font.pixelSize: 16
+            font.pointSize: 12
         }
 
         Item {
@@ -197,7 +197,7 @@ Item {
                 anchors.fill: parent
                 leftPadding: 54
                 rightPadding: greeterController.secret ? 54 : 14
-                font.pixelSize: 19
+                font.pointSize: 14.25
                 echoMode: reveal.pressed || !greeterController.secret ? TextInput.Normal : TextInput.Password
                 onAccepted: {
                     greeterController.respond(text)
@@ -222,7 +222,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 text: "♙"
                 color: "#83a8d3"
-                font.pixelSize: 25
+                font.pointSize: 18.75
             }
             Button {
                 id: reveal
@@ -249,7 +249,7 @@ Item {
                   ? "⚠  Caps Lock is on"
                   : greeterController.state === "failed" ? greeterController.status : ""
             color: greeterController.state === "failed" ? "#ff89a2" : "#bb7cec"
-            font.pixelSize: 16
+            font.pointSize: 12
             elide: Text.ElideRight
         }
 
@@ -258,7 +258,7 @@ Item {
             Layout.fillWidth: true
             text: greeterController.prompt
             color: "#dce6f5"
-            font.pixelSize: 18
+            font.pointSize: 13.5
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
         }
@@ -306,7 +306,7 @@ Item {
             Layout.preferredHeight: 66
             spacing: 14
 
-            Label { text: "▱"; color: "#88a9d0"; font.pixelSize: 27 }
+            Label { text: "▱"; color: "#88a9d0"; font.pointSize: 20.25 }
             ComboBox {
                 id: sessionSelector
                 objectName: "sessionSelector"
@@ -327,7 +327,7 @@ Item {
                 KeyNavigation.backtab: primary
             }
             Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 38; color: "#30435e" }
-            Label { text: "⌨"; color: "#88a9d0"; font.pixelSize: 22 }
+            Label { text: "⌨"; color: "#88a9d0"; font.pointSize: 16.5 }
             Label {
                 objectName: "keyboardSelector"
                 Layout.preferredWidth: 100
@@ -354,7 +354,7 @@ Item {
                   : greeterController.state === "authenticated" ? "Authenticated"
                   : "Ready to authenticate"
             color: greeterController.state === "failed" ? "#ff89a2" : "#526b8e"
-            font.pixelSize: 16
+            font.pointSize: 12
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
         }

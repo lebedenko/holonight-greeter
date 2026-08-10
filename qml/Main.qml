@@ -61,14 +61,14 @@ ApplicationWindow {
             Label {
                 text: Qt.formatTime(root.now, "hh:mm")
                 color: "#f5f7ff"
-                font.pixelSize: 132 * root.referenceScale
+                font.pointSize: 99 * root.referenceScale
                 font.weight: Font.Light
                 font.family: HolonightTheme.displayFont
             }
             Label {
                 text: Qt.formatDate(root.now, "dddd, d MMMM")
                 color: "#7697c5"
-                font.pixelSize: 30 * root.referenceScale
+                font.pointSize: 22.5 * root.referenceScale
                 font.weight: Font.Light
             }
             Rectangle {
@@ -81,14 +81,14 @@ ApplicationWindow {
             Label {
                 text: "HoloNight"
                 color: "#f4f6ff"
-                font.pixelSize: 30 * root.referenceScale
+                font.pointSize: 22.5 * root.referenceScale
                 font.weight: Font.Medium
                 font.family: HolonightTheme.titleFont
             }
             Label {
                 text: greeterMachineName
                 color: "#5b7da9"
-                font.pixelSize: 23 * root.referenceScale
+                font.pointSize: 17.25 * root.referenceScale
             }
         }
     }
@@ -173,7 +173,7 @@ ApplicationWindow {
         anchors.bottomMargin: 45 * root.referenceScale
         text: greeterController.selectedSessionName
         color: "#6584ad"
-        font.pixelSize: 20 * root.referenceScale
+        font.pointSize: 15 * root.referenceScale
     }
 
     Label {
@@ -235,7 +235,7 @@ ApplicationWindow {
             anchors.fill: parent
             enabled: actionFrame.enabled
             text: actionFrame.symbol
-            font.pixelSize: 31 * root.referenceScale
+            font.pointSize: 23.25 * root.referenceScale
             Accessible.name: actionFrame.description
             ToolTip.visible: hovered
             ToolTip.text: actionFrame.description
