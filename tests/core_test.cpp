@@ -242,23 +242,32 @@ TEST(Controller, GatesPowerOnExactCapability) {
   EXPECT_EQ(power.reboots, 1);
 }
 
-TEST(Demo, UsesOnlySyntheticData) {
+TEST(Demo, AvoidsSystemServicesButDiscoversSessions) {
   FakeTransport transport;
   FakeAccounts accounts;
   FakePower power;
   FakeFiles files;
+  files.records += {"plasma.desktop", "Plasma", {"startplasma-wayland"}};
   Greeter::Config config;
   config.userMode = Greeter::Config::UserMode::Manual;
   Greeter::Controller controller(true, "default", config,
                                  "/definitely/unreadable/state", &transport,
                                  &accounts, &power, &files);
   EXPECT_EQ(accounts.calls, 0);
-  EXPECT_EQ(files.discoveryCalls, 0);
+  EXPECT_EQ(files.discoveryCalls, 1);
   EXPECT_EQ(power.queries, 0);
   ASSERT_EQ(controller.users().size(), 1);
-  EXPECT_EQ(controller.users().first().toMap().value("username"), "demo");
-  ASSERT_EQ(controller.sessions().size(), 1);
-  EXPECT_EQ(controller.sessions().first().toMap().value("id"), "demo.desktop");
+  EXPECT_FALSE(controller.users()
+                   .first()
+                   .toMap()
+                   .value("username")
+                   .toString()
+                   .isEmpty());
+  ASSERT_EQ(controller.sessions().size(), 2);
+  EXPECT_EQ(controller.sessions().first().toMap().value("id"), "holo.desktop");
+  EXPECT_EQ(controller.selectedSessionName(), "Holo");
+  controller.setSelectedSession("plasma.desktop");
+  EXPECT_EQ(controller.selectedSessionName(), "Plasma");
   EXPECT_FALSE(controller.manualMode());
 }
 
@@ -269,7 +278,8 @@ TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
   FakeFiles files;
   Greeter::Controller controller(true, "default", {}, "/unused", &transport,
                                  &accounts, &power, &files);
-  controller.begin("demo");
+  controller.begin(
+      controller.users().first().toMap().value("username").toString());
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_EQ(controller.prompt(), "Password");
   EXPECT_TRUE(controller.secret());
@@ -288,12 +298,14 @@ TEST(Demo, WrongPasswordFailsAndCanRetry) {
   FakeFiles files;
   Greeter::Controller controller(true, "wrong-password", {}, "/unused",
                                  &transport, &accounts, &power, &files);
-  controller.begin("demo");
+  const QString username =
+      controller.users().first().toMap().value("username").toString();
+  controller.begin(username);
   controller.respond("wrong");
   EXPECT_EQ(controller.state(), "failed");
   EXPECT_EQ(controller.status(), "Authentication failed");
   EXPECT_EQ(transport.disconnections, 0);
-  controller.begin("demo");
+  controller.begin(username);
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_TRUE(controller.secret());
 }
@@ -305,7 +317,8 @@ TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
   FakeFiles files;
   Greeter::Controller controller(true, "otp", {}, "/unused", &transport,
                                  &accounts, &power, &files);
-  controller.begin("demo");
+  controller.begin(
+      controller.users().first().toMap().value("username").toString());
   EXPECT_EQ(controller.prompt(), "Password");
   EXPECT_TRUE(controller.secret());
   controller.respond("demo-password");
@@ -324,7 +337,8 @@ TEST(Demo, FingerprintCompletesAfterInformationalPrompt) {
   Greeter::Controller controller(true, "fingerprint", {}, "/unused", &transport,
                                  &accounts, &power, &files);
   QSignalSpy changed(&controller, &Greeter::Controller::changed);
-  controller.begin("demo");
+  controller.begin(
+      controller.users().first().toMap().value("username").toString());
   EXPECT_EQ(controller.state(), "informational-prompt");
   EXPECT_EQ(controller.prompt(), "Touch the fingerprint sensor");
   EXPECT_FALSE(controller.secret());

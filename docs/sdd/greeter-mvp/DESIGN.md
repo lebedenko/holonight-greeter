@@ -21,5 +21,6 @@ Controller actions are gated by protocol state. Cancellation sends `cancel_sessi
 
 ## Deployment
 
-The package installs the executable, compiled QML/resources, default configuration, tmpfiles rule, Cage guide, and a
-reference greetd configuration. The reference file is documentation, never `/etc/greetd/config.toml`.
+CMake installs the executable, compiled QML/resources, default configuration, tmpfiles rule, Cage guide, and a
+reference greetd configuration. The reference file is documentation, never `/etc/greetd/config.toml`. Distribution
+packaging is deferred until release planning.

@@ -1,8 +1,37 @@
 #include "controller.h"
 #include "state.h"
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QTimer>
 #include <QVariantMap>
+#include <pwd.h>
+#include <unistd.h>
+
+namespace {
+Greeter::User demoUser() {
+  const passwd *entry = getpwuid(getuid());
+  const QString username =
+      entry ? QString::fromLocal8Bit(entry->pw_name) : QStringLiteral("demo");
+  QString displayName =
+      entry ? QString::fromLocal8Bit(entry->pw_gecos).section(',', 0, 0)
+            : QString{};
+  if (displayName.isEmpty()) {
+    displayName = username;
+    if (!displayName.isEmpty())
+      displayName[0] = displayName[0].toUpper();
+  }
+  const QString home =
+      entry ? QString::fromLocal8Bit(entry->pw_dir) : QString{};
+  const QString accountIcon =
+      QStringLiteral("/var/lib/AccountsService/icons/") + username;
+  const QString face = home + QStringLiteral("/.face");
+  const QString avatar = QFileInfo(accountIcon).isReadable() ? accountIcon
+                         : QFileInfo(face).isReadable()      ? face
+                                                             : QString{};
+  return {username, displayName, avatar,
+          entry ? static_cast<uint>(entry->pw_uid) : 1000U};
+}
+} // namespace
 
 namespace Greeter {
 Controller::Controller(bool demo, QString scenario, Config config,
@@ -14,11 +43,14 @@ Controller::Controller(bool demo, QString scenario, Config config,
       transport_(transport), power_(power), files_(files) {
   if (demo_) {
     config_.userMode = Config::UserMode::List;
-    userRecords_ = {
-        {QStringLiteral("demo"), QStringLiteral("Demo User"), {}, 1000}};
-    sessionRecords_ = {{QStringLiteral("demo.desktop"),
-                        QStringLiteral("HoloNight (Demo)"),
-                        {QStringLiteral("/bin/true")}}};
+    userRecords_ = {demoUser()};
+    sessionRecords_ =
+        files_->sessions(config_.sessionDirectories, config_.includeSessions,
+                         config_.excludeSessions);
+    if (sessionRecords_.isEmpty())
+      sessionRecords_ = {{QStringLiteral("demo.desktop"),
+                          QStringLiteral("HoloNight (Demo fallback)"),
+                          {QStringLiteral("/bin/true")}}};
   } else if (!manualMode()) {
     userRecords_ = accounts->users(config_.includeUsers, config_.minUid,
                                    config_.maxUid, config_.excludeUsers);
@@ -78,6 +110,10 @@ QVariantList Controller::sessions() const {
   for (const auto &session : sessionRecords_)
     values += QVariantMap{{"id", session.id}, {"name", session.name}};
   return values;
+}
+QString Controller::selectedSessionName() const {
+  const Session *session = selected();
+  return session ? session->name : QString{};
 }
 void Controller::setSelectedSession(const QString &id) {
   for (const auto &session : sessionRecords_)
@@ -224,10 +260,14 @@ void Controller::handle(const QJsonObject &message) {
   fail(QStringLiteral("Unexpected greetd reply"));
 }
 void Controller::requestPowerOff() {
+  if (demo_)
+    return setState(state_, QStringLiteral("Shutdown simulated in demo mode"));
   if (canPowerOff_ && stage_ == Stage::Idle)
     power_->requestPowerOff();
 }
 void Controller::requestReboot() {
+  if (demo_)
+    return setState(state_, QStringLiteral("Reboot simulated in demo mode"));
   if (canReboot_ && stage_ == Stage::Idle)
     power_->requestReboot();
 }

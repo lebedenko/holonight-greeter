@@ -5,11 +5,28 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusReply>
+#include <QFileInfo>
 #include <algorithm>
 #include <pwd.h>
 #include <shadow.h>
 
 namespace {
+QString avatarPath(const QString &username, const QString &home = {}) {
+  const QString accountIcon =
+      QStringLiteral("/var/lib/AccountsService/icons/") + username;
+  if (QFileInfo(accountIcon).isReadable())
+    return accountIcon;
+  if (!home.isEmpty()) {
+    const QString face = home + QStringLiteral("/.face");
+    if (QFileInfo(face).isReadable())
+      return face;
+    const QString faceIcon = home + QStringLiteral("/.face.icon");
+    if (QFileInfo(faceIcon).isReadable())
+      return faceIcon;
+  }
+  return {};
+}
+
 bool locked(const QString &username) {
   const QByteArray name = username.toLocal8Bit();
   if (const spwd *shadow = getspnam(name.constData())) {
@@ -32,7 +49,9 @@ std::optional<Greeter::User> resolve(const QString &username) {
   const QString gecos =
       QString::fromLocal8Bit(entry->pw_gecos).section(',', 0, 0);
   return Greeter::User{
-      username, gecos.isEmpty() ? username : gecos, {}, entry->pw_uid};
+      username, gecos.isEmpty() ? username : gecos,
+      avatarPath(username, QString::fromLocal8Bit(entry->pw_dir)),
+      entry->pw_uid};
 }
 } // namespace
 
@@ -64,12 +83,14 @@ QList<User> SystemAccountSource::users(const QStringList &include, int minUid,
       const QString name = values.value("UserName").toString();
       if (name.isEmpty())
         continue;
+      QString icon = values.value("IconFile").toString();
+      if (icon.isEmpty() || !QFileInfo(icon).isReadable())
+        icon = avatarPath(name, values.value("HomeDirectory").toString());
       cached.insert(name, {name,
                            values.value("RealName").toString().isEmpty()
                                ? name
                                : values.value("RealName").toString(),
-                           values.value("IconFile").toString(),
-                           values.value("Uid").toUInt()});
+                           icon, values.value("Uid").toUInt()});
       cachedLocked.insert(name, values.value("Locked").toBool());
     }
   }

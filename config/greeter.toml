@@ -18,4 +18,4 @@ default = "holonight-hyprland.desktop"
 label = "EN"
 
 [appearance]
-background = "/usr/share/holonight-greeter/backgrounds/wallpaper1.png"
+background = "/usr/share/holonight-greeter/backgrounds/wallpaper.png"

@@ -31,17 +31,18 @@ qt_add_executable(holonight-greeter src/main.cpp)
 qt_add_qml_module(holonight-greeter
   URI Holonight.Greeter VERSION 1.0
   QML_FILES qml/Main.qml qml/LoginPanel.qml
-  RESOURCES assets/wallpaper1.png
+  RESOURCES assets/wallpaper.png
 )
 target_link_libraries(holonight-greeter PRIVATE greeter_core Qt6::Gui Qt6::Quick Qt6::Qml
   HolonightQt::Core HolonightQt::Controls)
 
 install(TARGETS holonight-greeter RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES packaging/greeter.toml DESTINATION /etc/holonight)
-install(FILES assets/wallpaper1.png
+install(FILES config/greeter.toml DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/holonight)
+install(FILES assets/wallpaper.png
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/holonight-greeter/backgrounds)
-install(FILES packaging/holonight-greeter.conf DESTINATION ${CMAKE_INSTALL_LIBDIR}/tmpfiles.d)
-install(FILES packaging/greetd-config.toml docs/CAGE.md DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/holonight-greeter)
+install(FILES deploy/holonight-greeter.conf DESTINATION ${CMAKE_INSTALL_LIBDIR}/tmpfiles.d)
+install(FILES deploy/greetd-config.toml docs/CAGE.md
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/holonight-greeter)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.11 REQUIRED COMPONENTS Test)

@@ -22,5 +22,6 @@ Authentication is disabled on invalid configuration. Missing configuration and c
 
 ## Acceptance
 
-The build, unit tests, QML lint/smoke tests, install inspection, and Arch package checks pass. The package must not own
-`/etc/greetd/config.toml`. Live Cage/VT rollout is a separate, explicitly approved step.
+The build, unit tests, QML lint/smoke tests, and temporary-prefix CMake install inspection pass. CMake installation
+must not create or modify `/etc/greetd/config.toml`. Distribution packaging is deferred until release planning. Live
+Cage/VT rollout is a separate, explicitly approved step.

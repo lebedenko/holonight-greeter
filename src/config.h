@@ -18,8 +18,7 @@ struct Config {
   QStringList excludeSessions;
   QString defaultSession = "holonight-hyprland.desktop";
   QString keyboardLabel = "EN";
-  QString background =
-      "/usr/share/holonight-greeter/backgrounds/wallpaper1.png";
+  QString background = "/usr/share/holonight-greeter/backgrounds/wallpaper.png";
 };
 
 struct ConfigResult {

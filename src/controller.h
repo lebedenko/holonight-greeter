@@ -16,6 +16,8 @@ class Controller final : public QObject {
   Q_PROPERTY(QVariantList sessions READ sessions CONSTANT)
   Q_PROPERTY(QString selectedSession READ selectedSession WRITE
                  setSelectedSession NOTIFY changed)
+  Q_PROPERTY(
+      QString selectedSessionName READ selectedSessionName NOTIFY changed)
   Q_PROPERTY(bool canPowerOff READ canPowerOff NOTIFY changed)
   Q_PROPERTY(bool canReboot READ canReboot NOTIFY changed)
 public:
@@ -34,8 +36,9 @@ public:
   QVariantList users() const;
   QVariantList sessions() const;
   QString selectedSession() const { return selectedSession_; }
-  bool canPowerOff() const { return canPowerOff_; }
-  bool canReboot() const { return canReboot_; }
+  QString selectedSessionName() const;
+  bool canPowerOff() const { return demo_ || canPowerOff_; }
+  bool canReboot() const { return demo_ || canReboot_; }
   void setSelectedSession(const QString &id);
   Q_INVOKABLE void begin(const QString &user);
   Q_INVOKABLE void respond(const QString &response);

@@ -6,6 +6,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QSysInfo>
 
 int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
@@ -44,6 +45,8 @@ int main(int argc, char **argv) {
                                            config.value.keyboardLabel);
   engine.rootContext()->setContextProperty("greeterBackground",
                                            config.value.background);
+  engine.rootContext()->setContextProperty("greeterMachineName",
+                                           QSysInfo::machineHostName());
   engine.loadFromModule("Holonight.Greeter", "Main");
   return engine.rootObjects().isEmpty() ? 1 : app.exec();
 }
