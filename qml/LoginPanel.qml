@@ -83,11 +83,12 @@ Item {
                 anchors.margins: 4
                 radius: width / 2
                 color: "#0b1729"
-                visible: panel.selectedAvatar.length > 0
                 Image {
                     id: avatarImage
                     anchors.fill: parent
-                    source: "file:" + panel.selectedAvatar
+                    source: panel.selectedAvatar.length > 0
+                            ? "file:" + panel.selectedAvatar
+                            : Qt.resolvedUrl("images/no-avatar.png")
                     fillMode: Image.PreserveAspectCrop
                     smooth: true
                     visible: false
@@ -101,25 +102,6 @@ Item {
                         radius: width / 2
                     }
                 }
-            }
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: 21
-                width: 48
-                height: 54
-                radius: 24
-                color: "#050c19"
-                visible: panel.selectedAvatar.length === 0
-            }
-            Rectangle {
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 8
-                width: 96
-                height: 58
-                radius: 48
-                color: "#050c19"
-                visible: panel.selectedAvatar.length === 0
             }
         }
 

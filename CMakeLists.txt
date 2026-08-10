@@ -15,6 +15,17 @@ qt_policy(SET QTP0004 NEW)
 find_package(HolonightQt REQUIRED COMPONENTS Core Controls)
 find_package(tomlplusplus CONFIG REQUIRED)
 
+set(GREETER_FACE_FILES
+  assets/faces/aster.png
+  assets/faces/echo.png
+  assets/faces/kael.png
+  assets/faces/lyra.png
+  assets/faces/nyx.png
+  assets/faces/sora.png
+  assets/faces/tux.png
+  assets/faces/vault-boy.png
+)
+
 add_library(greeter_core STATIC
   src/config.cpp src/config.h
   src/desktopentry.cpp src/desktopentry.h
@@ -31,15 +42,17 @@ qt_add_executable(holonight-greeter src/main.cpp)
 qt_add_qml_module(holonight-greeter
   URI Holonight.Greeter VERSION 1.0
   QML_FILES qml/Main.qml qml/LoginPanel.qml
-  RESOURCES assets/wallpaper.png
+  RESOURCES assets/backgrounds/wallpaper.png qml/images/no-avatar.png
 )
 target_link_libraries(holonight-greeter PRIVATE greeter_core Qt6::Gui Qt6::Quick Qt6::Qml
   HolonightQt::Core HolonightQt::Controls)
 
 install(TARGETS holonight-greeter RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES config/greeter.toml DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/holonight)
-install(FILES assets/wallpaper.png
+install(FILES assets/backgrounds/wallpaper.png
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/holonight-greeter/backgrounds)
+install(FILES ${GREETER_FACE_FILES}
+  DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pixmaps/faces)
 install(FILES deploy/holonight-greeter.conf DESTINATION ${CMAKE_INSTALL_LIBDIR}/tmpfiles.d)
 install(FILES deploy/greetd-config.toml docs/CAGE.md
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/holonight-greeter)

@@ -21,4 +21,7 @@ Production accepts `--config PATH` and `--state PATH`. Demo scenarios are `defau
 discovery, including local display names and avatars. Authentication, saved state, greetd communication, and logind
 actions remain deterministic simulations with no privileged side effects.
 
+The install includes optional account faces under `/usr/share/pixmaps/faces`. Accounts without an assigned avatar use
+the fallback image bundled into the greeter executable.
+
 See [the MVP SDD](docs/sdd/greeter-mvp/SPEC.md) and [Cage deployment guide](docs/CAGE.md).

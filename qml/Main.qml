@@ -37,7 +37,7 @@ ApplicationWindow {
 
     Image {
         anchors.fill: parent
-        source: greeterDemo ? "qrc:/qt/qml/Holonight/Greeter/assets/wallpaper.png"
+        source: greeterDemo ? "qrc:/qt/qml/Holonight/Greeter/assets/backgrounds/wallpaper.png"
                             : "file:" + greeterBackground
         fillMode: Image.PreserveAspectCrop
     }
