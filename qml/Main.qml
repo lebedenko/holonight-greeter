@@ -10,11 +10,14 @@ ApplicationWindow {
     objectName: "greeterWindow"
     width: greeterDemo ? 1672 : Screen.width
     height: greeterDemo ? 941 : Screen.height
-    visible: true
-    visibility: greeterDemo ? Window.Windowed : Window.FullScreen
+    visible: greeterDemo
     title: "HoloNight Greeter"
     color: "#050b18"
     font.family: HolonightTheme.uiFont
+    readonly property bool backgroundLoaded: wallpaper.status === Image.Ready
+    readonly property bool backgroundLoadFailed: wallpaper.status === Image.Error
+    signal backgroundReady
+    signal backgroundFailed
 
     readonly property bool compact: width < 900
     readonly property real referenceScale: Math.min(width / 1672, height / 941)
@@ -36,10 +39,17 @@ ApplicationWindow {
     }
 
     Image {
+        id: wallpaper
         anchors.fill: parent
         source: greeterDemo ? "qrc:/qt/qml/Holonight/Greeter/assets/backgrounds/wallpaper.png"
                             : "file:" + greeterBackground
         fillMode: Image.PreserveAspectCrop
+        onStatusChanged: {
+            if (status === Image.Ready)
+                root.backgroundReady()
+            else if (status === Image.Error)
+                root.backgroundFailed()
+        }
     }
 
     Rectangle {

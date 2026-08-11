@@ -4,6 +4,13 @@
 #include <QStringList>
 
 namespace Greeter {
+struct KeyboardLayout {
+  QString id;
+  QString layout;
+  QString variant;
+  QString label;
+};
+
 struct Config {
   enum class UserMode { List, Manual };
   UserMode userMode = UserMode::List;
@@ -18,6 +25,11 @@ struct Config {
   QStringList excludeSessions;
   QString defaultSession = "holonight-hyprland.desktop";
   QString keyboardLabel = "EN";
+  QString keyboardDefault;
+  QString keyboardOptions;
+  QList<KeyboardLayout> keyboardLayouts;
+  QString compositorBackend = "hyprland";
+  QString primaryOutput;
   QString background = "/usr/share/holonight-greeter/backgrounds/wallpaper.png";
 };
 

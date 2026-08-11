@@ -1,5 +1,9 @@
 version = 1
 
+[compositor]
+backend = "hyprland"
+primary_output = ""
+
 [users]
 mode = "list"
 min_uid = 1000
@@ -15,7 +19,12 @@ exclude = []
 default = "holonight-hyprland.desktop"
 
 [keyboard]
-label = "EN"
+default = "us"
+options = ""
+layouts = [
+  { id = "us", layout = "us", variant = "", label = "EN" },
+  { id = "ua", layout = "ua", variant = "", label = "UA" }
+]
 
 [appearance]
 background = "/usr/share/holonight-greeter/backgrounds/wallpaper.png"

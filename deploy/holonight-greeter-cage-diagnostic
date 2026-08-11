@@ -1,0 +1,16 @@
+#!/bin/sh
+
+set -u
+
+printf '%s\n' "holonight-greeter-cage: diagnostic-start" >&2
+printf '%s' "holonight-greeter-cage: cage-version " >&2
+cage -v >&2 || printf '%s\n' "unavailable" >&2
+printf '%s\n' "holonight-greeter-cage: WLR_DRM_DEVICES=${WLR_DRM_DEVICES-unset}" >&2
+
+# wlroots writes backend and output discovery to stderr. Keep stderr directly
+# attached to greetd/journald so bytes and Cage diagnostics are not rewritten.
+WLR_LOG="${WLR_LOG-debug}" NO_COLOR=1 cage -s -m extend -d -- "$@"
+status=$?
+
+printf '%s\n' "holonight-greeter-cage: cage-exit-status=$status" >&2
+exit "$status"

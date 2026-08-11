@@ -61,6 +61,7 @@ private:
     Complete,
     Failed
   };
+  static const char *stageName(Stage stage);
   void handle(const QJsonObject &message);
   void beginCancellation(QString failure = {});
   void finishCancellation();

@@ -1,6 +1,5 @@
-# Copy the relevant values into /etc/greetd/config.toml after validating paths.
 [terminal]
-vt = 1
+vt = 2
 
 [default_session]
 command = "/usr/bin/holonight-greeter-session --config /etc/holonight/greeter.toml"

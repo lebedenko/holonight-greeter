@@ -2,6 +2,7 @@
 #include "state.h"
 #include <QFileInfo>
 #include <QJsonArray>
+#include <QLoggingCategory>
 #include <QTimer>
 #include <QVariantMap>
 #include <pwd.h>
@@ -9,6 +10,8 @@
 #include <utility>
 
 namespace {
+Q_LOGGING_CATEGORY(greeterController, "holonight.greeter.controller")
+
 Greeter::User demoUser() {
   const passwd *entry = getpwuid(getuid());
   const QString username =
@@ -35,6 +38,25 @@ Greeter::User demoUser() {
 } // namespace
 
 namespace Greeter {
+const char *Controller::stageName(Stage stage) {
+  switch (stage) {
+  case Stage::Idle:
+    return "idle";
+  case Stage::Connecting:
+    return "connecting";
+  case Stage::Authenticating:
+    return "authenticating";
+  case Stage::Cancelling:
+    return "cancelling";
+  case Stage::Starting:
+    return "starting";
+  case Stage::Complete:
+    return "complete";
+  case Stage::Failed:
+    return "failed";
+  }
+  return "unknown";
+}
 Controller::Controller(bool demo, QString scenario, Config config,
                        QString statePath, IGreetdTransport *transport,
                        IAccountSource *accounts, IPowerService *power,
@@ -285,6 +307,8 @@ void Controller::finishCancellation() {
 }
 void Controller::handle(const QJsonObject &message) {
   const QString type = message.value("type").toString();
+  qCInfo(greeterController).noquote()
+      << "reply" << type << "stage" << stageName(stage_);
   if (stage_ == Stage::Cancelling) {
     if (type == "success" || type == "error") {
       finishCancellation();
@@ -377,6 +401,8 @@ void Controller::requestReboot() {
 void Controller::fail(const QString &reason) {
   if (stage_ == Stage::Failed)
     return;
+  qCWarning(greeterController) << "controller-failure"
+                               << "stage" << stageName(stage_);
   stage_ = Stage::Failed;
   prompt_.clear();
   secret_ = false;
@@ -388,6 +414,9 @@ void Controller::fail(const QString &reason) {
   setState("failed", reason);
 }
 void Controller::setState(QString state, QString status) {
+  qCInfo(greeterController).noquote()
+      << "state-transition" << stageName(stage_) << state
+      << (status.isEmpty() ? "no-status" : "status-present");
   state_ = std::move(state);
   status_ = std::move(status);
   emit changed();

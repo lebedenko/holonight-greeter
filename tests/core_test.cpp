@@ -1,7 +1,9 @@
+#include "compositoradapter.h"
 #include "config.h"
 #include "controller.h"
 #include "desktopentry.h"
 #include "greetdclient.h"
+#include "sessionlauncher.h"
 #include "state.h"
 #include <QFile>
 #include <QFileInfo>
@@ -11,6 +13,7 @@
 #include <QLocalSocket>
 #include <QProcess>
 #include <QSignalSpy>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
@@ -122,6 +125,125 @@ TEST(Config, RejectsWrongTypesOverflowAndUnknownKeys) {
   check("version=1\n[users]\nshow_avatars='yes'\n");
   check("version=1\nsurprise=true\n");
   check("version=1\n[sessions]\ndirectories=['/usr//share']\n");
+}
+TEST(Config, LoadsCompositorAndOrderedLayouts) {
+  QTemporaryDir temporary;
+  QFile file(temporary.filePath("greeter.toml"));
+  ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+  file.write("version=1\n[compositor]\nbackend='cage'\nprimary_output='DP-2'\n"
+             "[keyboard]\ndefault='ua'\noptions='grp:alt_shift_toggle'\n"
+             "layouts=[{id='us',layout='us',variant='',label='EN'},"
+             "{id='ua',layout='ua',variant='',label='UA'}]\n");
+  file.close();
+  const auto result = Greeter::loadConfig(file.fileName());
+  ASSERT_TRUE(result.valid()) << result.error.toStdString();
+  EXPECT_EQ(result.value.compositorBackend, "cage");
+  EXPECT_EQ(result.value.primaryOutput, "DP-2");
+  ASSERT_EQ(result.value.keyboardLayouts.size(), 2);
+  EXPECT_EQ(result.value.keyboardLabel, "UA");
+}
+TEST(Config, RejectsDuplicateOrMissingDefaultLayout) {
+  QTemporaryDir temporary;
+  const auto check = [&](const QByteArray &keyboard) {
+    QFile file(temporary.filePath("greeter.toml"));
+    EXPECT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write("version=1\n[keyboard]\n" + keyboard);
+    file.close();
+    EXPECT_FALSE(Greeter::loadConfig(file.fileName()).valid());
+  };
+  check("default='us'\nlayouts=[{id='us',layout='us',label='EN'},"
+        "{id='us',layout='ua',label='UA'}]\n");
+  check("default='gone'\nlayouts=[{id='us',layout='us',label='EN'}]\n");
+}
+TEST(OutputPolicy, UsesConfiguredThenPrimaryThenDiscoveryOrder) {
+  const QStringList outputs{"HDMI-A-1", "DP-2", "DP-1"};
+  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "DP-2", "HDMI-A-1"),
+            "DP-2");
+  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "gone", "HDMI-A-1"),
+            "HDMI-A-1");
+  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "gone", "also-gone"),
+            "HDMI-A-1");
+  EXPECT_EQ(Greeter::selectInteractiveOutput({"DP-2"}, "DP-1", "DP-1"), "DP-2");
+  EXPECT_TRUE(Greeter::selectInteractiveOutput({}, "DP-1", "DP-1").isEmpty());
+}
+TEST(OutputPolicy, PlansExactlyOneSurfacePerOutput) {
+  using Greeter::OutputAssignment;
+  using Greeter::OutputRole;
+  EXPECT_TRUE(Greeter::planOutputs({}, {}, {}).isEmpty());
+  EXPECT_EQ(Greeter::planOutputs({"eDP-1"}, {}, {}),
+            QList<OutputAssignment>({{"eDP-1", OutputRole::Interactive}}));
+  EXPECT_EQ(Greeter::planOutputs({"eDP-1", "DP-5"}, {}, "DP-5"),
+            QList<OutputAssignment>({{"eDP-1", OutputRole::Wallpaper},
+                                     {"DP-5", OutputRole::Interactive}}));
+  EXPECT_EQ(Greeter::planOutputs({"eDP-1", "DP-5", "HDMI-A-1"}, {}, "gone"),
+            QList<OutputAssignment>({{"eDP-1", OutputRole::Interactive},
+                                     {"DP-5", OutputRole::Wallpaper},
+                                     {"HDMI-A-1", OutputRole::Wallpaper}}));
+  EXPECT_EQ(Greeter::planOutputs({"DP-5"}, {}, "eDP-1"),
+            QList<OutputAssignment>({{"DP-5", OutputRole::Interactive}}));
+}
+TEST(SessionLauncher, ConstructsOnlyFixedCageArguments) {
+  const auto command = Greeter::cageCommand("/usr/bin/holonight-greeter",
+                                            "/etc/holonight/greeter.toml");
+  EXPECT_EQ(command.program, "dbus-run-session");
+  EXPECT_EQ(command.arguments,
+            QStringList({"cage", "-s", "-m", "extend", "-d", "--",
+                         "/usr/bin/holonight-greeter", "--config",
+                         "/etc/holonight/greeter.toml"}));
+}
+TEST(SessionLauncher, UsesStartHyprlandWithPrivateLuaConfiguration) {
+  const auto command =
+      Greeter::hyprlandCommand("/run/holonight-greeter/session/hyprland.lua");
+  EXPECT_EQ(command.program, "dbus-run-session");
+  EXPECT_EQ(command.arguments,
+            QStringList({"start-hyprland", "--", "--config",
+                         "/run/holonight-greeter/session/hyprland.lua"}));
+}
+TEST(SessionLauncher, GeneratesIsolatedHyprlandKeyboardConfiguration) {
+  Greeter::Config config;
+  config.keyboardOptions = "grp:alt_shift_toggle";
+  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  const QString generated = Greeter::hyprlandConfig(
+      config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
+  EXPECT_TRUE(generated.contains("kb_layout = \"us,ua\""));
+  EXPECT_TRUE(generated.contains("kb_options = \"grp:alt_shift_toggle\""));
+  EXPECT_TRUE(generated.contains("hl.on(\"hyprland.start\""));
+  EXPECT_TRUE(
+      generated.contains("hl.exec_cmd(\"/usr/bin/holonight-greeter --config "
+                         "/etc/holonight/greeter.toml\")"));
+  EXPECT_FALSE(generated.contains("require("));
+}
+TEST(SessionLauncher, PlacesConfiguredDefaultLayoutFirst) {
+  Greeter::Config config;
+  config.keyboardDefault = "ua";
+  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  const QString generated = Greeter::hyprlandConfig(
+      config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
+  EXPECT_TRUE(generated.contains("kb_layout = \"ua,us\""));
+}
+TEST(SessionLauncher, GeneratedLuaPassesInstalledHyprlandParser) {
+  const QString hyprland = QStandardPaths::findExecutable("Hyprland");
+  if (hyprland.isEmpty())
+    GTEST_SKIP() << "Hyprland is not installed";
+  QTemporaryDir temporary;
+  const QString path = temporary.filePath("hyprland.lua");
+  QFile file(path);
+  ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+  Greeter::Config config;
+  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  ASSERT_GT(
+      file.write(Greeter::hyprlandConfig(config, "/usr/bin/holonight-greeter",
+                                         "/etc/holonight/greeter.toml")
+                     .toUtf8()),
+      0);
+  file.close();
+  QProcess process;
+  process.start(hyprland, {"--verify-config", "--config", path});
+  ASSERT_TRUE(process.waitForFinished(5000));
+  EXPECT_EQ(process.exitStatus(), QProcess::NormalExit);
+  EXPECT_EQ(process.exitCode(), 0)
+      << process.readAllStandardError().toStdString()
+      << process.readAllStandardOutput().toStdString();
 }
 TEST(DesktopExec, ExpandsSafeCodesWithoutShell) {
   QString error;

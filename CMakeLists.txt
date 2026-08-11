@@ -13,6 +13,7 @@ find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml Network DBus)
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
 find_package(HolonightQt REQUIRED COMPONENTS Core Controls)
+find_package(LayerShellQt REQUIRED)
 find_package(tomlplusplus CONFIG REQUIRED)
 
 set(GREETER_FACE_FILES
@@ -28,6 +29,8 @@ set(GREETER_FACE_FILES
 
 add_library(greeter_core STATIC
   src/config.cpp src/config.h
+  src/compositoradapter.cpp src/compositoradapter.h
+  src/sessionlauncher.cpp src/sessionlauncher.h
   src/desktopentry.cpp src/desktopentry.h
   src/greetdclient.cpp src/greetdclient.h
   src/state.cpp src/state.h
@@ -41,14 +44,19 @@ target_compile_options(greeter_core PRIVATE -Wall -Wextra -Wpedantic)
 qt_add_executable(holonight-greeter src/main.cpp)
 qt_add_qml_module(holonight-greeter
   URI Holonight.Greeter VERSION 1.0
-  QML_FILES qml/Main.qml qml/LoginPanel.qml
+  QML_FILES qml/Main.qml qml/LoginPanel.qml qml/Background.qml
   RESOURCES assets/backgrounds/wallpaper.png qml/images/no-avatar.png
 )
 target_link_libraries(holonight-greeter PRIVATE greeter_core Qt6::Gui Qt6::Quick Qt6::Qml
-  HolonightQt::Core HolonightQt::Controls)
+  HolonightQt::Core HolonightQt::Controls LayerShellQt::Interface)
+target_sources(holonight-greeter PRIVATE src/outputmanager.cpp src/outputmanager.h)
 
-install(TARGETS holonight-greeter RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES config/greeter.toml DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/holonight)
+add_executable(holonight-greeter-session src/sessionmain.cpp)
+target_link_libraries(holonight-greeter-session PRIVATE greeter_core Qt6::Core)
+
+install(TARGETS holonight-greeter holonight-greeter-session
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES config/greeter.toml DESTINATION ${CMAKE_INSTALL_FULL_SYSCONFDIR}/holonight)
 install(FILES assets/backgrounds/wallpaper.png
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/holonight-greeter/backgrounds)
 install(FILES ${GREETER_FACE_FILES}
@@ -56,6 +64,8 @@ install(FILES ${GREETER_FACE_FILES}
 install(FILES deploy/holonight-greeter.conf DESTINATION ${CMAKE_INSTALL_LIBDIR}/tmpfiles.d)
 install(FILES deploy/greetd-config.toml docs/CAGE.md
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/holonight-greeter)
+install(PROGRAMS deploy/holonight-greeter-cage-diagnostic
+  DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/holonight-greeter)
 
 if(BUILD_TESTING)
   find_package(Qt6 6.11 REQUIRED COMPONENTS Test)

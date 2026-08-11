@@ -21,3 +21,7 @@ install includes the configured wallpaper and account faces, keeps the fallback 
 create or modify `/etc/greetd/config.toml`. Distribution
 packaging is owned by a future ecosystem-wide release initiative. Final live Cage/VT verification passed on
 2026-08-11 with the user confirming that all known greeter issues were fixed.
+
+Post-verification note (2026-08-11): Cage teardown and initial greeter exit failures recurred after the live result
+above. The historical verification remains unchanged; diagnosis and corrective work are tracked in
+[`../boot-login-reliability/TASKS.md`](../boot-login-reliability/TASKS.md).

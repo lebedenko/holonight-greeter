@@ -15,7 +15,7 @@ public:
 
 private:
   void consume();
-  void fail(const QString &reason);
+  void fail(const QString &reason, const char *category);
   QLocalSocket socket_;
   QTimer timer_;
   QByteArray input_;

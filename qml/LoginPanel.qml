@@ -314,10 +314,18 @@ Item {
             Label {
                 objectName: "keyboardSelector"
                 Layout.preferredWidth: 100
-                text: greeterKeyboardLabel
+                text: greeterCompositor.keyboardLabel
                 color: "#6884aa"
                 horizontalAlignment: Text.AlignHCenter
                 Accessible.description: "Keyboard layout is configured by the administrator"
+            }
+            Button {
+                objectName: "keyboardCycleButton"
+                visible: greeterCompositor.canCycleLayout
+                text: "↻"
+                Accessible.name: "Switch keyboard layout"
+                onClicked: greeterCompositor.cycleLayout()
+                background: Item {}
             }
         }
 

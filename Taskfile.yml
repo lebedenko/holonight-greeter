@@ -1,10 +1,46 @@
-version: '3'
+version: "3"
+vars:
+  SYSTEM_BUILD_DIR: build-system
+  LIVE_ROOT: /tmp/holonight-greeter-live
 tasks:
   configure:
     cmds: [cmake -S . -B build -G Ninja -DBUILD_TESTING=ON]
   build:
     deps: [configure]
     cmds: [cmake --build build]
+  "configure:system":
+    cmds:
+      - cmake -S . -B {{.SYSTEM_BUILD_DIR}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr
+  "build:system":
+    deps: ["configure:system"]
+    cmds:
+      - cmake --build {{.SYSTEM_BUILD_DIR}}
+  "install:system":
+    desc: Install the production greeter and provision its state directory
+    deps: ["build:system"]
+    cmds:
+      - sudo cmake --install {{.SYSTEM_BUILD_DIR}}
+      - sudo systemd-tmpfiles --create holonight-greeter.conf
+  troubleshoot:
+    desc: Review greetd, Cage coredumps, and service state after a login cycle
+    cmds:
+      - journalctl -b -u greetd --since '-10 minutes' --no-pager
+      - cmd: coredumpctl list cage --since '-10 minutes' --no-pager
+        ignore_error: true
+      - cmd: systemctl status greetd --no-pager
+        ignore_error: true
+  "live:test":
+    desc: Build and run an isolated greetd greeter on VT2
+    preconditions:
+      - sh: test ! -e /run/greetd-holonight-live.sock
+        msg: /run/greetd-holonight-live.sock already exists; verify that no live test is running
+    cmds:
+      - cmake -S . -B {{.LIVE_ROOT}}/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr
+      - cmake --build {{.LIVE_ROOT}}/build
+      - DESTDIR={{.LIVE_ROOT}}/root cmake --install {{.LIVE_ROOT}}/build
+      - install -m 0644 deploy/greetd-live.toml {{.LIVE_ROOT}}/greetd-live.toml
+      - sudo install -d -o greeter -g greeter -m 0700 {{.LIVE_ROOT}}/state
+      - bash scripts/run-live-test.sh
   test:
     deps: [build]
     cmds: [ctest --test-dir build --output-on-failure]
@@ -12,5 +48,5 @@ tasks:
     deps: [build]
     cmds:
       - cmake --build build --target format-check
-      - qmllint -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml
+      - qmllint -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml qml/Background.qml
       - git diff --check
