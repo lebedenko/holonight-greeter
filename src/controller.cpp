@@ -6,6 +6,7 @@
 #include <QVariantMap>
 #include <pwd.h>
 #include <unistd.h>
+#include <utility>
 
 namespace {
 Greeter::User demoUser() {
@@ -62,11 +63,22 @@ Controller::Controller(bool demo, QString scenario, Config config,
     sessionRecords_ =
         files_->sessions(config_.sessionDirectories, config_.includeSessions,
                          config_.excludeSessions);
+  const State savedState = demo_ ? State{} : loadState(statePath_);
+  if (!manualMode() && !userRecords_.isEmpty()) {
+    initialUser_ = userRecords_.first().username;
+    if (!demo_ && !savedState.lastUser.isEmpty()) {
+      for (const auto &user : userRecords_) {
+        if (user.username == savedState.lastUser) {
+          initialUser_ = savedState.lastUser;
+          break;
+        }
+      }
+    }
+  }
   QStringList ids;
   for (const auto &session : sessionRecords_)
     ids += session.id;
-  selectedSession_ = selectSession(demo_ ? State{} : loadState(statePath_),
-                                   config_.defaultSession, ids);
+  selectedSession_ = selectSession(savedState, config_.defaultSession, ids);
 
   connect(transport_, &IGreetdTransport::connected, this, [this] {
     if (stage_ != Stage::Connecting)
@@ -136,6 +148,26 @@ void Controller::begin(const QString &user) {
   const QString candidate = user.trimmed();
   if (demo_ && !activeUser_.isEmpty() && activeUser_ != candidate)
     cancel();
+  if (!demo_ && stage_ == Stage::Cancelling) {
+    pendingUser_ = candidate;
+    return;
+  }
+  if (!demo_ && stage_ == Stage::Connecting && !candidate.isEmpty() &&
+      candidate != activeUser_) {
+    activeUser_.clear();
+    stage_ = Stage::Idle;
+    setState("user-selection");
+    transport_->disconnectFromServer();
+    begin(candidate);
+    return;
+  }
+  if (!demo_ && stage_ != Stage::Idle && stage_ != Stage::Failed) {
+    if (!candidate.isEmpty() && candidate != activeUser_) {
+      pendingUser_ = candidate;
+      beginCancellation();
+    }
+    return;
+  }
   if (stage_ != Stage::Idle && stage_ != Stage::Failed)
     return;
   if (candidate.isEmpty() || !selected())
@@ -151,6 +183,7 @@ void Controller::begin(const QString &user) {
                       QStringLiteral("Choose an available user"));
   }
   activeUser_ = candidate;
+  authenticationError_.clear();
   demoStep_ = 0;
   prompt_.clear();
   secret_ = false;
@@ -182,9 +215,13 @@ void Controller::respond(const QString &response) {
     return;
   QByteArray bytes = response.toUtf8();
   if (demo_) {
-    if (scenario_ == "wrong-password")
-      fail(QStringLiteral("Authentication failed"));
-    else if (scenario_ == "otp" && demoStep_++ == 0) {
+    if (scenario_ == "wrong-password") {
+      bytes.fill('\0');
+      prompt_ = QStringLiteral("Password");
+      secret_ = true;
+      setState("input-prompt", QStringLiteral("Authentication failed"));
+      return;
+    } else if (scenario_ == "otp" && demoStep_++ == 0) {
       bytes.fill('\0');
       prompt_ = QStringLiteral("One-time code");
       secret_ = false;
@@ -205,10 +242,12 @@ void Controller::respond(const QString &response) {
 void Controller::cancel() {
   if (stage_ == Stage::Idle)
     return;
-  if (!demo_ && stage_ != Stage::Connecting)
-    transport_->cancel();
-  if (!demo_)
+  pendingUser_.clear();
+  if (!demo_ && stage_ == Stage::Connecting) {
     transport_->disconnectFromServer();
+  } else if (!demo_ && stage_ != Stage::Failed) {
+    return beginCancellation();
+  }
   if (demo_)
     ++demoAttempt_;
   activeUser_.clear();
@@ -217,8 +256,42 @@ void Controller::cancel() {
   stage_ = Stage::Idle;
   setState("user-selection");
 }
+void Controller::beginCancellation(QString failure) {
+  if (stage_ == Stage::Cancelling)
+    return;
+  cancellationFailure_ = std::move(failure);
+  prompt_.clear();
+  secret_ = false;
+  stage_ = Stage::Cancelling;
+  setState("waiting", QStringLiteral("Cancelling authentication"));
+  transport_->cancel();
+}
+void Controller::finishCancellation() {
+  activeUser_.clear();
+  prompt_.clear();
+  secret_ = false;
+  const QString failure = std::exchange(cancellationFailure_, QString{});
+  const QString nextUser = std::exchange(pendingUser_, QString{});
+  stage_ = failure.isEmpty() ? Stage::Idle : Stage::Failed;
+  setState(failure.isEmpty() ? QStringLiteral("user-selection")
+                             : QStringLiteral("failed"),
+           failure);
+  transport_->disconnectFromServer();
+  if (!nextUser.isEmpty()) {
+    stage_ = Stage::Idle;
+    begin(nextUser);
+    authenticationError_ = failure;
+  }
+}
 void Controller::handle(const QJsonObject &message) {
   const QString type = message.value("type").toString();
+  if (stage_ == Stage::Cancelling) {
+    if (type == "success" || type == "error") {
+      finishCancellation();
+      return;
+    }
+    return fail(QStringLiteral("Could not cancel greetd authentication"));
+  }
   if (stage_ == Stage::Authenticating && type == "auth_message") {
     const QString kind = message.value("auth_message_type").toString();
     const auto promptValue = message.value("auth_message");
@@ -227,9 +300,18 @@ void Controller::handle(const QJsonObject &message) {
       return fail(QStringLiteral("Malformed greetd authentication prompt"));
     prompt_ = promptValue.toString();
     secret_ = kind == "secret";
-    setState(kind == "info" || kind == "error" ? "informational-prompt"
-                                               : "input-prompt",
-             kind == "error" ? prompt_ : QString{});
+    if (kind == "error") {
+      authenticationError_ = prompt_;
+      prompt_.clear();
+      setState("waiting");
+    } else {
+      const QString status =
+          kind == "visible" || kind == "secret"
+              ? std::exchange(authenticationError_, QString{})
+              : QString{};
+      setState(kind == "info" ? "informational-prompt" : "input-prompt",
+               status);
+    }
     if (kind == "info" || kind == "error")
       transport_->send({{"type", "post_auth_message_response"},
                         {"response", QJsonValue::Null}});
@@ -257,13 +339,26 @@ void Controller::handle(const QJsonObject &message) {
               .arg(error));
     stage_ = Stage::Complete;
     transport_->disconnectFromServer();
-    return setState("authenticated");
+    setState("authenticated");
+    emit sessionStarted();
+    return;
   }
   if (type == "error" && stage_ != Stage::Idle) {
     const auto description = message.value("description");
-    return fail(description.isString() && !description.toString().isEmpty()
-                    ? description.toString()
-                    : QStringLiteral("greetd rejected the request"));
+    const QString reason =
+        description.isString() && !description.toString().isEmpty()
+            ? description.toString()
+            : QStringLiteral("greetd rejected the request");
+    if (message.value("error_type").toString() == "auth_error" &&
+        stage_ == Stage::Authenticating) {
+      const QString authenticationFailure =
+          authenticationError_.isEmpty()
+              ? reason
+              : std::exchange(authenticationError_, QString{});
+      pendingUser_ = activeUser_;
+      return beginCancellation(authenticationFailure);
+    }
+    return fail(reason);
   }
   fail(QStringLiteral("Unexpected greetd reply"));
 }
@@ -285,6 +380,9 @@ void Controller::fail(const QString &reason) {
   stage_ = Stage::Failed;
   prompt_.clear();
   secret_ = false;
+  pendingUser_.clear();
+  cancellationFailure_.clear();
+  authenticationError_.clear();
   if (!demo_)
     transport_->disconnectFromServer();
   setState("failed", reason);

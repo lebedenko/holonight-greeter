@@ -25,5 +25,5 @@ and a synthetic session when discovery is empty. It never contacts greetd or log
 ## Acceptance
 
 The build, unit tests, QML lint/smoke tests, and temporary-prefix CMake install inspection pass. CMake installation
-must not create or modify `/etc/greetd/config.toml`. Distribution packaging is deferred until release planning. Live
-Cage/VT rollout is a separate, explicitly approved step.
+must not create or modify `/etc/greetd/config.toml`. Per-repository distribution packaging is outside this MVP and is
+owned by a future ecosystem-wide release initiative. Live Cage/VT rollout is a separate, explicitly approved step.

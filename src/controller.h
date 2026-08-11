@@ -12,6 +12,7 @@ class Controller final : public QObject {
   Q_PROPERTY(QString status READ status NOTIFY changed)
   Q_PROPERTY(bool demo READ demo CONSTANT)
   Q_PROPERTY(bool manualMode READ manualMode CONSTANT)
+  Q_PROPERTY(QString initialUser READ initialUser CONSTANT)
   Q_PROPERTY(QVariantList users READ users CONSTANT)
   Q_PROPERTY(QVariantList sessions READ sessions CONSTANT)
   Q_PROPERTY(QString selectedSession READ selectedSession WRITE
@@ -33,6 +34,7 @@ public:
   bool manualMode() const {
     return config_.userMode == Config::UserMode::Manual;
   }
+  QString initialUser() const { return initialUser_; }
   QVariantList users() const;
   QVariantList sessions() const;
   QString selectedSession() const { return selectedSession_; }
@@ -47,17 +49,21 @@ public:
   Q_INVOKABLE void requestReboot();
 signals:
   void changed();
+  void sessionStarted();
 
 private:
   enum class Stage {
     Idle,
     Connecting,
     Authenticating,
+    Cancelling,
     Starting,
     Complete,
     Failed
   };
   void handle(const QJsonObject &message);
+  void beginCancellation(QString failure = {});
+  void finishCancellation();
   void setState(QString state, QString status = {});
   void fail(const QString &reason);
   const Session *selected() const;
@@ -71,7 +77,11 @@ private:
   QList<User> userRecords_;
   QList<Session> sessionRecords_;
   QString selectedSession_;
+  QString initialUser_;
   QString activeUser_;
+  QString pendingUser_;
+  QString cancellationFailure_;
+  QString authenticationError_;
   QString state_ = "user-selection";
   QString prompt_;
   QString status_;

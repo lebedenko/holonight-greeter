@@ -44,9 +44,12 @@ Item {
     }
 
     Component.onCompleted: {
-        if (greeterDemo && panel.selectedUser.length > 0) {
+        if (greeterConfigError.length === 0 && !greeterController.manualMode
+                && greeterController.initialUser.length > 0) {
+            const wanted = userSelector.indexOfValue(greeterController.initialUser)
+            if (wanted >= 0)
+                userSelector.currentIndex = wanted
             greeterController.begin(panel.selectedUser)
-            Qt.callLater(panel.focusPassword)
         }
     }
 
@@ -125,17 +128,7 @@ Item {
             }
             indicator: Item {}
             background: Item {}
-            onPressedChanged: {
-                if (pressed && greeterController.state !== "user-selection") {
-                    greeterController.cancel()
-                    Qt.callLater(popup.open)
-                }
-            }
-            onActivated: {
-                if (greeterController.state !== "user-selection")
-                    greeterController.cancel()
-                greeterController.begin(currentValue)
-            }
+            onActivated: greeterController.begin(currentValue)
             KeyNavigation.tab: response.visible ? response : primary
             KeyNavigation.backtab: panel.lastSystemAction
         }
@@ -148,6 +141,7 @@ Item {
             Layout.fillWidth: true
             placeholderText: "Username"
             enabled: greeterConfigError.length === 0 && greeterController.state === "user-selection"
+            onAccepted: greeterController.begin(text)
             KeyNavigation.tab: primary
         }
 
@@ -169,7 +163,7 @@ Item {
         }
 
         Item {
-            visible: response.visible
+            visible: greeterController.state === "input-prompt"
             Layout.fillWidth: true
             Layout.preferredHeight: 57
             Layout.topMargin: 8
@@ -181,7 +175,8 @@ Item {
                 leftPadding: 54
                 rightPadding: greeterController.secret ? 54 : 14
                 font.pointSize: 14.25
-                echoMode: reveal.pressed || !greeterController.secret ? TextInput.Normal : TextInput.Password
+                echoMode: greeterController.secret && !reveal.pressed
+                          ? TextInput.Password : TextInput.Normal
                 onAccepted: {
                     greeterController.respond(text)
                     text = ""
@@ -229,9 +224,8 @@ Item {
             Layout.preferredHeight: 28
             Layout.topMargin: 12
             text: response.visible && greeterController.secret && panel.capsLockOn
-                  ? "⚠  Caps Lock is on"
-                  : greeterController.state === "failed" ? greeterController.status : ""
-            color: greeterController.state === "failed" ? "#ff89a2" : "#bb7cec"
+                  ? "⚠  Caps Lock is on" : ""
+            color: "#bb7cec"
             font.pointSize: 12
             elide: Text.ElideRight
         }
@@ -261,10 +255,16 @@ Item {
             objectName: "primaryButton"
             Layout.fillWidth: true
             Layout.preferredHeight: 54
-            text: greeterController.state === "failed" ? "Retry" :
-                  response.visible ? "Log in" : "Continue"
-            enabled: greeterConfigError.length === 0 && sessionSelector.count > 0
-                     && ["user-selection", "failed", "input-prompt"].includes(greeterController.state)
+            visible: greeterController.state === "input-prompt"
+                     || greeterController.state === "failed"
+                     || (greeterController.manualMode
+                         && greeterController.state === "user-selection")
+            text: "Log in"
+            enabled: visible && greeterConfigError.length === 0
+                     && sessionSelector.count > 0
+                     && (!greeterController.manualMode
+                         || greeterController.state !== "user-selection"
+                         || username.text.trim().length > 0)
             onClicked: {
                 if (response.visible) {
                     greeterController.respond(response.text)
@@ -336,7 +336,7 @@ Item {
                   : greeterController.state === "starting" ? "Starting selected session"
                   : greeterController.state === "authenticated" ? "Authenticated"
                   : "Ready to authenticate"
-            color: greeterController.state === "failed" ? "#ff89a2" : "#526b8e"
+            color: greeterController.status.length > 0 ? "#ff89a2" : "#526b8e"
             font.pointSize: 12
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight

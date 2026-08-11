@@ -35,6 +35,8 @@ int main(int argc, char **argv) {
   Greeter::Controller controller(demo, scenario, config.value,
                                  parser.value("state"), &transport, &accounts,
                                  &power, &files);
+  QObject::connect(&controller, &Greeter::Controller::sessionStarted, &app,
+                   &QCoreApplication::quit);
   QQmlApplicationEngine engine;
   engine.rootContext()->setContextProperty("greeterController", &controller);
   engine.rootContext()->setContextProperty("greeterConfigError", config.error);

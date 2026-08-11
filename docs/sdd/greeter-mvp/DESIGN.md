@@ -17,6 +17,12 @@ Configuration is loaded first. A fatal result reaches QML as a configuration-err
 created. Eligible users and sessions are stable-sorted. Session selection uses valid persisted state, configured
 default, then the first session. Successful `start_session` acknowledgement is the only state-write trigger.
 
+List mode selects the last eligible user, falling back to the first discovered account, and starts authentication as
+soon as QML is ready. Account changes wait for greetd cancellation before starting the replacement exchange. A PAM
+authentication error is retained while the completed exchange is cancelled, then shown once beside the fresh,
+focused password prompt for the same account. Manual mode starts without an account and advances from the username
+field through Enter or the single `Log in` action.
+
 The greetd transport consumes native-endian uint32 lengths and incremental JSON payloads with a 1 MiB hard limit.
 Controller actions are gated by protocol state. Cancellation sends `cancel_session` whenever connected.
 
@@ -25,4 +31,4 @@ Controller actions are gated by protocol state. Cancellation sends `cancel_sessi
 CMake installs the executable, compiled QML/resources, optional system account faces, default configuration, tmpfiles
 rule, Cage guide, and a reference greetd configuration. The no-avatar fallback remains a binary resource instead of a
 system face. The reference greetd file is documentation, never `/etc/greetd/config.toml`. Distribution packaging is
-deferred until release planning.
+owned by a future ecosystem-wide release initiative.

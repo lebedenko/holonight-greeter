@@ -1,5 +1,8 @@
 #include "greetdclient.h"
 #include <QJsonDocument>
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(greetdProtocol, "holonight.greeter.protocol")
 
 namespace Greeter {
 GreetdClient::GreetdClient(QObject *parent) : IGreetdTransport(parent) {
@@ -49,6 +52,8 @@ void GreetdClient::send(const QJsonObject &message) {
     return;
   }
   QByteArray body = QJsonDocument(message).toJson(QJsonDocument::Compact);
+  qCDebug(greetdProtocol).noquote()
+      << "send" << message.value("type").toString();
   const quint32 size = quint32(body.size());
   QByteArray frame(reinterpret_cast<const char *>(&size), sizeof(size));
   frame += body;
@@ -107,7 +112,11 @@ void GreetdClient::consume() {
       return;
     }
     timer_.stop();
-    emit message(document.object());
+    const QJsonObject message = document.object();
+    qCDebug(greetdProtocol).noquote()
+        << "receive" << message.value("type").toString()
+        << message.value("auth_message_type").toString();
+    emit this->message(message);
   }
 }
 } // namespace Greeter

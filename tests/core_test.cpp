@@ -24,10 +24,15 @@ public:
   QString path;
   int cancellations = 0;
   int disconnections = 0;
+  bool disconnectSynchronously = false;
   void connectTo(const QString &value) override { path = value; }
   void send(const QJsonObject &message) override { sent += message; }
   void cancel() override { ++cancellations; }
-  void disconnectFromServer() override { ++disconnections; }
+  void disconnectFromServer() override {
+    ++disconnections;
+    if (disconnectSynchronously)
+      emit disconnected();
+  }
   void connectNow() { emit connected(); }
   void reply(const QJsonObject &value) { emit message(value); }
   void disconnectNow() { emit disconnected(); }
@@ -182,6 +187,7 @@ TEST(Controller, RunsCompleteAuthenticationAndPersistsAfterStart) {
   config.defaultSession = "holo.desktop";
   Greeter::Controller controller(false, {}, config, "/unused", &transport,
                                  &accounts, &power, &files);
+  QSignalSpy sessionStarted(&controller, &Greeter::Controller::sessionStarted);
   qputenv("GREETD_SOCK", "/tmp/greetd.sock");
   controller.begin("alice");
   EXPECT_EQ(controller.state(), "connecting");
@@ -206,8 +212,37 @@ TEST(Controller, RunsCompleteAuthenticationAndPersistsAfterStart) {
   EXPECT_TRUE(files.savedUser.isEmpty());
   transport.reply({{"type", "success"}});
   EXPECT_EQ(controller.state(), "authenticated");
+  EXPECT_EQ(sessionStarted.count(), 1);
   EXPECT_EQ(files.savedUser, "alice");
   EXPECT_EQ(files.savedSession, "holo.desktop");
+}
+
+TEST(Controller, SelectsSavedEligibleUserOtherwiseFirstUser) {
+  QTemporaryDir temporary;
+  const QString statePath = temporary.filePath("state.json");
+  QString error;
+  ASSERT_TRUE(
+      Greeter::saveState(statePath, {"bob", "holo.desktop"}, false, &error));
+  FakeTransport transport;
+  FakeAccounts accounts;
+  accounts.records = {{"alice", "Alice", {}, 1000}, {"bob", "Bob", {}, 1001}};
+  FakePower power;
+  FakeFiles files;
+  Greeter::Controller saved(false, {}, {}, statePath, &transport, &accounts,
+                            &power, &files);
+  EXPECT_EQ(saved.initialUser(), "bob");
+
+  ASSERT_TRUE(Greeter::saveState(statePath, {"removed", "holo.desktop"}, false,
+                                 &error));
+  Greeter::Controller fallback(false, {}, {}, statePath, &transport, &accounts,
+                               &power, &files);
+  EXPECT_EQ(fallback.initialUser(), "alice");
+
+  Greeter::Config manualConfig;
+  manualConfig.userMode = Greeter::Config::UserMode::Manual;
+  Greeter::Controller manual(false, {}, manualConfig, statePath, &transport,
+                             &accounts, &power, &files);
+  EXPECT_TRUE(manual.initialUser().isEmpty());
 }
 
 TEST(Controller, HandlesMixedPromptsCancellationAndDisconnectFailClosed) {
@@ -226,13 +261,70 @@ TEST(Controller, HandlesMixedPromptsCancellationAndDisconnectFailClosed) {
                    {"auth_message", "Insert token"}});
   EXPECT_TRUE(transport.sent.last().value("response").isNull());
   transport.reply({{"type", "auth_message"},
+                   {"auth_message_type", "error"},
+                   {"auth_message", "AUTH_ERR"}});
+  EXPECT_EQ(controller.state(), "waiting");
+  EXPECT_TRUE(controller.prompt().isEmpty());
+  EXPECT_TRUE(controller.status().isEmpty());
+  EXPECT_TRUE(transport.sent.last().value("response").isNull());
+  transport.reply({{"type", "auth_message"},
                    {"auth_message_type", "visible"},
                    {"auth_message", "Code"}});
   EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.status(), "AUTH_ERR");
   transport.disconnectNow();
   EXPECT_EQ(controller.state(), "failed");
   controller.cancel();
   EXPECT_EQ(controller.state(), "user-selection");
+}
+
+TEST(Controller, WaitsForCancellationBeforeRestartingOrSwitchingUsers) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  accounts.records += {"bob", "Bob", {}, 1001};
+  FakePower power;
+  FakeFiles files;
+  Greeter::Config config;
+  config.defaultSession = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport,
+                                 &accounts, &power, &files);
+  controller.begin("alice");
+  controller.begin("bob");
+  EXPECT_EQ(controller.state(), "connecting");
+  EXPECT_EQ(transport.cancellations, 0);
+  transport.connectNow();
+  EXPECT_EQ(transport.sent.last().value("username"), "bob");
+  transport.reply({{"type", "auth_message"},
+                   {"auth_message_type", "secret"},
+                   {"auth_message", "Password"}});
+  controller.begin("alice");
+  EXPECT_EQ(controller.state(), "waiting");
+  EXPECT_EQ(transport.cancellations, 1);
+  transport.reply({{"type", "success"}});
+  EXPECT_EQ(controller.state(), "connecting");
+  transport.connectNow();
+  EXPECT_EQ(transport.sent.last().value("type"), "create_session");
+  EXPECT_EQ(transport.sent.last().value("username"), "alice");
+
+  transport.reply({{"type", "error"},
+                   {"error_type", "auth_error"},
+                   {"description", "Authentication failed"}});
+  EXPECT_EQ(controller.state(), "waiting");
+  EXPECT_EQ(transport.cancellations, 2);
+  transport.disconnectSynchronously = true;
+  transport.reply({{"type", "error"},
+                   {"error_type", "error"},
+                   {"description", "no session to cancel"}});
+  EXPECT_EQ(controller.state(), "connecting");
+  EXPECT_TRUE(controller.status().isEmpty());
+  transport.connectNow();
+  EXPECT_EQ(transport.sent.last().value("username"), "alice");
+  transport.reply({{"type", "auth_message"},
+                   {"auth_message_type", "secret"},
+                   {"auth_message", "Password"}});
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.status(), "Authentication failed");
+  EXPECT_TRUE(controller.secret());
 }
 
 TEST(Controller, GatesPowerOnExactCapability) {
@@ -282,6 +374,7 @@ TEST(Demo, DiscoversConfiguredUsersAndSessionsWithoutPrivilegedServices) {
             "/avatars/alice.png");
   EXPECT_EQ(controller.users()[1].toMap().value("username"), "bob");
   EXPECT_EQ(controller.users()[1].toMap().value("avatar"), "/avatars/bob.png");
+  EXPECT_EQ(controller.initialUser(), "alice");
   ASSERT_EQ(controller.sessions().size(), 2);
   EXPECT_EQ(controller.sessions().first().toMap().value("id"), "holo.desktop");
   EXPECT_EQ(controller.selectedSessionName(), "Holo");
@@ -360,7 +453,7 @@ TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
   EXPECT_EQ(files.saveCalls, 0);
 }
 
-TEST(Demo, WrongPasswordFailsAndCanRetry) {
+TEST(Demo, WrongPasswordImmediatelyRefreshesPasswordPrompt) {
   FakeTransport transport;
   FakeAccounts accounts;
   accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
@@ -372,16 +465,16 @@ TEST(Demo, WrongPasswordFailsAndCanRetry) {
       controller.users().first().toMap().value("username").toString();
   controller.begin(username);
   controller.respond("wrong");
-  EXPECT_EQ(controller.state(), "failed");
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.prompt(), "Password");
+  EXPECT_TRUE(controller.secret());
   EXPECT_EQ(controller.status(), "Authentication failed");
   EXPECT_EQ(transport.disconnections, 0);
-  controller.begin(username);
-  EXPECT_EQ(controller.state(), "input-prompt");
-  EXPECT_TRUE(controller.secret());
   controller.begin("bob");
   EXPECT_EQ(controller.prompt(), "Password");
   controller.respond("wrong");
-  EXPECT_EQ(controller.state(), "failed");
+  EXPECT_EQ(controller.state(), "input-prompt");
+  EXPECT_EQ(controller.status(), "Authentication failed");
 }
 
 TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
