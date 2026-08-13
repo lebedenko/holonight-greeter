@@ -12,7 +12,7 @@ option(BUILD_TESTING "Build tests" ON)
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml Network DBus)
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
-find_package(HolonightQt REQUIRED COMPONENTS Core Controls)
+find_package(HolonightQt 0.1.1 REQUIRED COMPONENTS Core Controls)
 find_package(LayerShellQt REQUIRED)
 find_package(tomlplusplus CONFIG REQUIRED)
 
@@ -44,7 +44,7 @@ target_compile_options(greeter_core PRIVATE -Wall -Wextra -Wpedantic)
 qt_add_executable(holonight-greeter src/main.cpp)
 qt_add_qml_module(holonight-greeter
   URI Holonight.Greeter VERSION 1.0
-  QML_FILES qml/Main.qml qml/LoginPanel.qml qml/Background.qml
+  QML_FILES qml/Main.qml qml/LoginPanel.qml qml/FooterSelector.qml qml/Background.qml
   RESOURCES assets/backgrounds/wallpaper.png qml/images/no-avatar.png
 )
 target_link_libraries(holonight-greeter PRIVATE greeter_core Qt6::Gui Qt6::Quick Qt6::Qml

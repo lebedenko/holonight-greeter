@@ -17,14 +17,18 @@ class CompositorAdapter final : public QObject {
   Q_PROPERTY(QString backendName READ backendName CONSTANT)
   Q_PROPERTY(bool canCycleLayout READ canCycleLayout CONSTANT)
   Q_PROPERTY(QString keyboardLabel READ keyboardLabel NOTIFY layoutChanged)
+  Q_PROPERTY(
+      QString keyboardLayoutId READ keyboardLayoutId NOTIFY layoutChanged)
   Q_PROPERTY(QVariantList layouts READ layouts CONSTANT)
 public:
   explicit CompositorAdapter(Config config, QObject *parent = nullptr);
   QString backendName() const { return backend_; }
   bool canCycleLayout() const;
   QString keyboardLabel() const;
+  QString keyboardLayoutId() const;
   QVariantList layouts() const;
   Q_INVOKABLE bool cycleLayout();
+  Q_INVOKABLE bool selectLayout(const QString &id);
 signals:
   void layoutChanged();
 

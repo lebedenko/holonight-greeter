@@ -21,6 +21,8 @@ class Controller final : public QObject {
       QString selectedSessionName READ selectedSessionName NOTIFY changed)
   Q_PROPERTY(bool canPowerOff READ canPowerOff NOTIFY changed)
   Q_PROPERTY(bool canReboot READ canReboot NOTIFY changed)
+  Q_PROPERTY(bool powerConfirmationRequired READ powerConfirmationRequired
+                 NOTIFY changed)
 public:
   Controller(bool demo, QString scenario, Config config, QString statePath,
              IGreetdTransport *transport, IAccountSource *accounts,
@@ -41,12 +43,16 @@ public:
   QString selectedSessionName() const;
   bool canPowerOff() const { return demo_ || canPowerOff_; }
   bool canReboot() const { return demo_ || canReboot_; }
+  bool powerConfirmationRequired() const {
+    return demo_ || powerConfirmationRequired_;
+  }
   void setSelectedSession(const QString &id);
   Q_INVOKABLE void begin(const QString &user);
   Q_INVOKABLE void respond(const QString &response);
   Q_INVOKABLE void cancel();
-  Q_INVOKABLE void requestPowerOff();
-  Q_INVOKABLE void requestReboot();
+  Q_INVOKABLE void restartAuthentication();
+  Q_INVOKABLE void requestPowerOff(bool confirmed = false);
+  Q_INVOKABLE void requestReboot(bool confirmed = false);
 signals:
   void changed();
   void sessionStarted();
@@ -89,6 +95,7 @@ private:
   bool secret_ = false;
   bool canPowerOff_ = false;
   bool canReboot_ = false;
+  bool powerConfirmationRequired_ = true;
   int demoStep_ = 0;
   quint64 demoAttempt_ = 0;
   Stage stage_ = Stage::Idle;

@@ -118,9 +118,11 @@ Controller::Controller(bool demo, QString scenario, Config config,
       fail(QStringLiteral("greetd disconnected"));
   });
   connect(power_, &IPowerService::capabilities, this,
-          [this](bool off, bool reboot, const QString &reason) {
+          [this](bool off, bool reboot, bool confirmationRequired,
+                 const QString &reason) {
             canPowerOff_ = off;
             canReboot_ = reboot;
+            powerConfirmationRequired_ = confirmationRequired;
             if (!reason.isEmpty())
               status_ = reason;
             emit changed();
@@ -278,6 +280,28 @@ void Controller::cancel() {
   stage_ = Stage::Idle;
   setState("user-selection");
 }
+void Controller::restartAuthentication() {
+  const QString user = activeUser_;
+  if (user.isEmpty())
+    return;
+  if (demo_) {
+    cancel();
+    begin(user);
+    return;
+  }
+  if (stage_ == Stage::Connecting) {
+    transport_->disconnectFromServer();
+    activeUser_.clear();
+    stage_ = Stage::Idle;
+    setState("user-selection");
+    begin(user);
+    return;
+  }
+  if (stage_ == Stage::Authenticating) {
+    pendingUser_ = user;
+    beginCancellation();
+  }
+}
 void Controller::beginCancellation(QString failure) {
   if (stage_ == Stage::Cancelling)
     return;
@@ -325,9 +349,9 @@ void Controller::handle(const QJsonObject &message) {
     prompt_ = promptValue.toString();
     secret_ = kind == "secret";
     if (kind == "error") {
-      authenticationError_ = prompt_;
+      authenticationError_ = QStringLiteral("Authentication failed");
       prompt_.clear();
-      setState("waiting");
+      setState("waiting", authenticationError_);
     } else {
       const QString status =
           kind == "visible" || kind == "secret"
@@ -376,9 +400,8 @@ void Controller::handle(const QJsonObject &message) {
     if (message.value("error_type").toString() == "auth_error" &&
         stage_ == Stage::Authenticating) {
       const QString authenticationFailure =
-          authenticationError_.isEmpty()
-              ? reason
-              : std::exchange(authenticationError_, QString{});
+          QStringLiteral("Authentication failed");
+      authenticationError_.clear();
       pendingUser_ = activeUser_;
       return beginCancellation(authenticationFailure);
     }
@@ -386,16 +409,20 @@ void Controller::handle(const QJsonObject &message) {
   }
   fail(QStringLiteral("Unexpected greetd reply"));
 }
-void Controller::requestPowerOff() {
+void Controller::requestPowerOff(bool confirmed) {
+  if (powerConfirmationRequired() && !confirmed)
+    return;
   if (demo_)
     return setState(state_, QStringLiteral("Shutdown simulated in demo mode"));
-  if (canPowerOff_ && stage_ == Stage::Idle)
+  if (canPowerOff_)
     power_->requestPowerOff();
 }
-void Controller::requestReboot() {
+void Controller::requestReboot(bool confirmed) {
+  if (powerConfirmationRequired() && !confirmed)
+    return;
   if (demo_)
     return setState(state_, QStringLiteral("Reboot simulated in demo mode"));
-  if (canReboot_ && stage_ == Stage::Idle)
+  if (canReboot_)
     power_->requestReboot();
 }
 void Controller::fail(const QString &reason) {

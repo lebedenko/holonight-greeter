@@ -23,8 +23,13 @@ bool CompositorAdapter::canCycleLayout() const {
 QString CompositorAdapter::keyboardLabel() const {
   return layouts_.isEmpty() ? legacyLabel_ : layouts_[current_].label;
 }
+QString CompositorAdapter::keyboardLayoutId() const {
+  return layouts_.isEmpty() ? QString{} : layouts_[current_].id;
+}
 QVariantList CompositorAdapter::layouts() const {
   QVariantList result;
+  if (layouts_.isEmpty() && !legacyLabel_.isEmpty())
+    result += QVariantMap{{"id", QString{}}, {"label", legacyLabel_}};
   for (const auto &layout : layouts_)
     result += QVariantMap{{"id", layout.id}, {"label", layout.label}};
   return result;
@@ -32,12 +37,23 @@ QVariantList CompositorAdapter::layouts() const {
 bool CompositorAdapter::cycleLayout() {
   if (!canCycleLayout())
     return false;
+  return selectLayout(layouts_[(current_ + 1) % layouts_.size()].id);
+}
+bool CompositorAdapter::selectLayout(const QString &id) {
+  if (backend_ != "hyprland")
+    return false;
+  const auto found = std::ranges::find(layouts_, id, &KeyboardLayout::id);
+  if (found == layouts_.end())
+    return false;
+  const int index = static_cast<int>(std::distance(layouts_.begin(), found));
+  if (index == current_)
+    return true;
   QProcess ipc;
-  ipc.start("hyprctl", {"switchxkblayout", "all", "next"});
+  ipc.start("hyprctl", {"switchxkblayout", "all", QString::number(index)});
   if (!ipc.waitForStarted(1000) || !ipc.waitForFinished(2000) ||
       ipc.exitStatus() != QProcess::NormalExit || ipc.exitCode() != 0)
     return false;
-  current_ = (current_ + 1) % layouts_.size();
+  current_ = index;
   emit layoutChanged();
   return true;
 }

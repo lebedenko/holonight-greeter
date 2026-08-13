@@ -43,7 +43,8 @@ public:
   virtual void requestPowerOff() = 0;
   virtual void requestReboot() = 0;
 signals:
-  void capabilities(bool canPowerOff, bool canReboot, const QString &reason);
+  void capabilities(bool canPowerOff, bool canReboot,
+                    bool powerConfirmationRequired, const QString &reason);
   void completed(const QString &error);
 };
 
@@ -72,13 +73,17 @@ public:
 class LogindPowerService final : public IPowerService {
   Q_OBJECT
 public:
-  using IPowerService::IPowerService;
+  explicit LogindPowerService(QObject *parent = nullptr);
+public slots:
   void queryCapabilities() override;
+
+public:
   void requestPowerOff() override;
   void requestReboot() override;
 
 private:
   void request(const QString &method);
+  bool queryPowerConfirmationRequired(QString *error) const;
 };
 
 class SystemClock final : public IClock {

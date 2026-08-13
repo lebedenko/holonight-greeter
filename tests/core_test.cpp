@@ -68,8 +68,9 @@ public:
   void queryCapabilities() override { ++queries; }
   void requestPowerOff() override { ++offs; }
   void requestReboot() override { ++reboots; }
-  void capabilitiesNow(bool off, bool reboot, const QString &reason = {}) {
-    emit capabilities(off, reboot, reason);
+  void capabilitiesNow(bool off, bool reboot, bool confirmationRequired = true,
+                       const QString &reason = {}) {
+    emit capabilities(off, reboot, confirmationRequired, reason);
   }
 };
 class FakeFiles final : public Greeter::IFileSystem {
@@ -181,6 +182,64 @@ TEST(OutputPolicy, PlansExactlyOneSurfacePerOutput) {
                                      {"HDMI-A-1", OutputRole::Wallpaper}}));
   EXPECT_EQ(Greeter::planOutputs({"DP-5"}, {}, "eDP-1"),
             QList<OutputAssignment>({{"DP-5", OutputRole::Interactive}}));
+}
+TEST(CompositorAdapter, SelectsConfiguredLayoutByIdAfterSuccessfulIpc) {
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  QFile hyprctl(temporary.filePath("hyprctl"));
+  ASSERT_TRUE(hyprctl.open(QIODevice::WriteOnly));
+  hyprctl.write("#!/bin/sh\n[ \"$1\" = switchxkblayout ] && "
+                "[ \"$2\" = all ] && [ \"$3\" = 1 ]\n");
+  hyprctl.close();
+  ASSERT_TRUE(QFile::setPermissions(
+      hyprctl.fileName(), QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                              QFileDevice::ExeOwner));
+  const QByteArray oldPath = qgetenv("PATH");
+  qputenv("PATH", temporary.path().toLocal8Bit() + ':' + oldPath);
+
+  Greeter::Config config;
+  config.compositorBackend = "hyprland";
+  config.keyboardDefault = "us";
+  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  Greeter::CompositorAdapter adapter(config);
+  EXPECT_EQ(adapter.keyboardLayoutId(), "us");
+  EXPECT_TRUE(adapter.selectLayout("ua"));
+  EXPECT_EQ(adapter.keyboardLayoutId(), "ua");
+  EXPECT_EQ(adapter.keyboardLabel(), "UA");
+
+  qputenv("PATH", oldPath);
+}
+
+TEST(CompositorAdapter,
+     PreservesLayoutForInvalidUnsupportedAndFailedSelection) {
+  Greeter::Config config;
+  config.compositorBackend = "cage";
+  config.keyboardDefault = "us";
+  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  Greeter::CompositorAdapter unsupported(config);
+  EXPECT_FALSE(unsupported.selectLayout("ua"));
+  EXPECT_EQ(unsupported.keyboardLayoutId(), "us");
+
+  config.compositorBackend = "hyprland";
+  Greeter::CompositorAdapter invalid(config);
+  EXPECT_FALSE(invalid.selectLayout("missing"));
+  EXPECT_EQ(invalid.keyboardLayoutId(), "us");
+
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  QFile hyprctl(temporary.filePath("hyprctl"));
+  ASSERT_TRUE(hyprctl.open(QIODevice::WriteOnly));
+  hyprctl.write("#!/bin/sh\nexit 1\n");
+  hyprctl.close();
+  ASSERT_TRUE(QFile::setPermissions(
+      hyprctl.fileName(), QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+                              QFileDevice::ExeOwner));
+  const QByteArray oldPath = qgetenv("PATH");
+  qputenv("PATH", temporary.path().toLocal8Bit() + ':' + oldPath);
+  Greeter::CompositorAdapter failed(config);
+  EXPECT_FALSE(failed.selectLayout("ua"));
+  EXPECT_EQ(failed.keyboardLayoutId(), "us");
+  qputenv("PATH", oldPath);
 }
 TEST(SessionLauncher, ConstructsOnlyFixedCageArguments) {
   const auto command = Greeter::cageCommand("/usr/bin/holonight-greeter",
@@ -387,13 +446,13 @@ TEST(Controller, HandlesMixedPromptsCancellationAndDisconnectFailClosed) {
                    {"auth_message", "AUTH_ERR"}});
   EXPECT_EQ(controller.state(), "waiting");
   EXPECT_TRUE(controller.prompt().isEmpty());
-  EXPECT_TRUE(controller.status().isEmpty());
+  EXPECT_EQ(controller.status(), "Authentication failed");
   EXPECT_TRUE(transport.sent.last().value("response").isNull());
   transport.reply({{"type", "auth_message"},
                    {"auth_message_type", "visible"},
                    {"auth_message", "Code"}});
   EXPECT_EQ(controller.state(), "input-prompt");
-  EXPECT_EQ(controller.status(), "AUTH_ERR");
+  EXPECT_EQ(controller.status(), "Authentication failed");
   transport.disconnectNow();
   EXPECT_EQ(controller.state(), "failed");
   controller.cancel();
@@ -430,7 +489,7 @@ TEST(Controller, WaitsForCancellationBeforeRestartingOrSwitchingUsers) {
 
   transport.reply({{"type", "error"},
                    {"error_type", "auth_error"},
-                   {"description", "Authentication failed"}});
+                   {"description", "pam_authenticate: AUTH_ERR"}});
   EXPECT_EQ(controller.state(), "waiting");
   EXPECT_EQ(transport.cancellations, 2);
   transport.disconnectSynchronously = true;
@@ -449,7 +508,31 @@ TEST(Controller, WaitsForCancellationBeforeRestartingOrSwitchingUsers) {
   EXPECT_TRUE(controller.secret());
 }
 
-TEST(Controller, GatesPowerOnExactCapability) {
+TEST(Controller, EscapeRestartsAuthenticationForCurrentUser) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Config config;
+  config.defaultSession = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport,
+                                 &accounts, &power, &files);
+  controller.begin("alice");
+  transport.connectNow();
+  transport.reply({{"type", "auth_message"},
+                   {"auth_message_type", "secret"},
+                   {"auth_message", "Password"}});
+
+  controller.restartAuthentication();
+  EXPECT_EQ(controller.state(), "waiting");
+  EXPECT_EQ(transport.cancellations, 1);
+  transport.reply({{"type", "success"}});
+  EXPECT_EQ(controller.state(), "connecting");
+  transport.connectNow();
+  EXPECT_EQ(transport.sent.last().value("username"), "alice");
+}
+
+TEST(Controller, GatesPowerOnCapabilityAndSessionConfirmation) {
   FakeTransport transport;
   FakeAccounts accounts;
   FakePower power;
@@ -461,8 +544,37 @@ TEST(Controller, GatesPowerOnExactCapability) {
   EXPECT_EQ(power.queries, 1);
   controller.requestReboot();
   EXPECT_EQ(power.reboots, 0);
-  power.capabilitiesNow(false, true);
+  power.capabilitiesNow(false, true, false);
   controller.requestReboot();
+  EXPECT_EQ(power.reboots, 1);
+  controller.requestPowerOff(true);
+  EXPECT_EQ(power.offs, 0);
+
+  power.capabilitiesNow(true, true, true);
+  EXPECT_TRUE(controller.powerConfirmationRequired());
+  controller.requestPowerOff();
+  controller.requestReboot();
+  EXPECT_EQ(power.offs, 0);
+  EXPECT_EQ(power.reboots, 1);
+  controller.requestPowerOff(true);
+  controller.requestReboot(true);
+  EXPECT_EQ(power.offs, 1);
+  EXPECT_EQ(power.reboots, 2);
+}
+
+TEST(Controller, AllowsConfirmedPowerRequestDuringAuthentication) {
+  FakeTransport transport;
+  FakeAccounts accounts;
+  FakePower power;
+  FakeFiles files;
+  Greeter::Config config;
+  config.defaultSession = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport,
+                                 &accounts, &power, &files);
+  power.capabilitiesNow(true, true, true, "Could not query logind sessions");
+  controller.begin("alice");
+  transport.connectNow();
+  controller.requestReboot(true);
   EXPECT_EQ(power.reboots, 1);
 }
 
@@ -503,8 +615,9 @@ TEST(Demo, DiscoversConfiguredUsersAndSessionsWithoutPrivilegedServices) {
   controller.setSelectedSession("plasma.desktop");
   EXPECT_EQ(controller.selectedSessionName(), "Plasma");
   EXPECT_FALSE(controller.manualMode());
-  controller.requestPowerOff();
-  controller.requestReboot();
+  EXPECT_TRUE(controller.powerConfirmationRequired());
+  controller.requestPowerOff(true);
+  controller.requestReboot(true);
   EXPECT_EQ(power.offs, 0);
   EXPECT_EQ(power.reboots, 0);
   EXPECT_EQ(files.saveCalls, 0);

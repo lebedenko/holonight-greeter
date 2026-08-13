@@ -25,6 +25,45 @@ ApplicationWindow {
                                        ? Math.min((width - 48) / 500, (height - 72) / 655)
                                        : Math.max(0.78, Math.min(1.25, referenceScale))
     property date now: new Date()
+    property string pendingPowerAction: ""
+    property Item pendingPowerOrigin: null
+
+    function requestPowerAction(action, origin) {
+        if (!greeterController.powerConfirmationRequired) {
+            if (action === "reboot")
+                greeterController.requestReboot(false)
+            else
+                greeterController.requestPowerOff(false)
+            return
+        }
+        pendingPowerAction = action
+        pendingPowerOrigin = origin
+        Qt.callLater(function() {
+            powerNoButton.forceActiveFocus(Qt.TabFocusReason)
+        })
+    }
+
+    function cancelPowerConfirmation() {
+        const origin = pendingPowerOrigin
+        pendingPowerAction = ""
+        pendingPowerOrigin = null
+        if (origin)
+            Qt.callLater(function() {
+                origin.forceActiveFocus(Qt.TabFocusReason)
+            })
+    }
+
+    function confirmPowerAction() {
+        const action = pendingPowerAction
+        pendingPowerAction = ""
+        pendingPowerOrigin = null
+        Qt.callLater(function() {
+            if (action === "reboot")
+                greeterController.requestReboot(true)
+            else
+                greeterController.requestPowerOff(true)
+        })
+    }
 
     onActiveChanged: {
         if (active)
@@ -112,66 +151,91 @@ ApplicationWindow {
         x: root.compact ? (root.width - width) / 2
                         : root.width - width - root.width * 0.104
         y: (root.height - height) / 2 - 6 * root.referenceScale
-        firstSystemAction: accessibilityAction.focusTarget
+        firstSystemAction: rebootAction.focusTarget
         lastSystemAction: powerAction.focusTarget
     }
 
     Shortcut {
         sequence: "Escape"
-        enabled: !["user-selection", "failed", "authenticated"].includes(greeterController.state)
-        onActivated: greeterController.cancel()
+        enabled: root.pendingPowerAction.length === 0
+                 && !["user-selection", "failed", "authenticated"].includes(greeterController.state)
+        onActivated: greeterController.restartAuthentication()
     }
 
-    Row {
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.pendingPowerAction.length > 0
+        onActivated: root.cancelPowerConfirmation()
+    }
+
+    Item {
         id: systemActions
         visible: !root.compact
-        spacing: 28 * root.referenceScale
+        width: Math.max(normalPowerRow.implicitWidth, confirmationRow.implicitWidth)
+        height: 62 * root.referenceScale
         anchors.right: parent.right
         anchors.rightMargin: 52 * root.referenceScale
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 40 * root.referenceScale
 
-        SystemActionButton {
-            id: accessibilityAction
-            objectName: "accessibilityButton"
-            symbol: "♿︎"
-            description: "Accessibility information"
-            enabled: true
-            tabTarget: rebootAction.focusTarget
-            backtabTarget: loginPanel.footerFocusTarget
-            onClicked: accessibilityDialog.open()
-        }
-        SystemActionButton {
-            id: rebootAction
-            objectName: "rebootButton"
-            symbol: "↻"
-            description: greeterController.canReboot ? "Reboot" : "Reboot unavailable"
-            enabled: greeterController.canReboot
-            tabTarget: powerAction.focusTarget
-            backtabTarget: accessibilityAction.focusTarget
-            onClicked: loginPanel.openRebootConfirmation()
-        }
-        SystemActionButton {
-            id: powerAction
-            objectName: "powerButton"
-            symbol: "⏻"
-            description: greeterController.canPowerOff ? "Shut down" : "Shutdown unavailable"
-            enabled: greeterController.canPowerOff
-            tabTarget: loginPanel.passwordFocusTarget
-            backtabTarget: rebootAction.focusTarget
-            onClicked: loginPanel.openPowerConfirmation()
-        }
-    }
+        Row {
+            id: normalPowerRow
+            visible: root.pendingPowerAction.length === 0
+            spacing: 28 * root.referenceScale
 
-    Dialog {
-        id: accessibilityDialog
-        anchors.centerIn: parent
-        modal: true
-        title: "Accessibility"
-        standardButtons: Dialog.Close
-        Label {
-            text: "Keyboard navigation and visible focus are enabled.\nAdditional accessibility controls are planned."
-            wrapMode: Text.Wrap
+            SystemActionButton {
+                id: rebootAction
+                objectName: "rebootButton"
+                symbol: "↻"
+                description: greeterController.canReboot ? qsTr("Reboot") : qsTr("Reboot unavailable")
+                enabled: greeterController.canReboot
+                tabTarget: powerAction.focusTarget
+                backtabTarget: loginPanel.footerFocusTarget
+                onClicked: root.requestPowerAction("reboot", focusTarget)
+            }
+            SystemActionButton {
+                id: powerAction
+                objectName: "powerButton"
+                symbol: "⏻"
+                description: greeterController.canPowerOff ? qsTr("Shut down") : qsTr("Shutdown unavailable")
+                enabled: greeterController.canPowerOff
+                tabTarget: loginPanel.passwordFocusTarget
+                backtabTarget: rebootAction.focusTarget
+                onClicked: root.requestPowerAction("poweroff", focusTarget)
+            }
+        }
+
+        Row {
+            id: confirmationRow
+            visible: root.pendingPowerAction.length > 0
+            height: parent.height
+            spacing: 10 * root.referenceScale
+
+            Label {
+                height: parent.height
+                text: root.pendingPowerAction === "reboot" ? qsTr("Reboot?") : qsTr("Shut down?")
+                color: HoloniightPalette.textPrimary
+                verticalAlignment: Text.AlignVCenter
+            }
+            Button {
+                id: powerYesButton
+                text: qsTr("Yes")
+                height: parent.height
+                onClicked: root.confirmPowerAction()
+                Keys.onSpacePressed: function(event) { event.accepted = true }
+                KeyNavigation.tab: powerNoButton
+                KeyNavigation.backtab: powerNoButton
+            }
+            Button {
+                id: powerNoButton
+                objectName: "powerConfirmationNoButton"
+                text: qsTr("No")
+                height: parent.height
+                onClicked: root.cancelPowerConfirmation()
+                Keys.onSpacePressed: function(event) { event.accepted = true }
+                KeyNavigation.tab: powerYesButton
+                KeyNavigation.backtab: powerYesButton
+            }
         }
     }
 
@@ -216,9 +280,13 @@ ApplicationWindow {
                 id: actionPath
                 readonly property real chamfer: 10 * root.referenceScale
                 readonly property real cornerRadius: 2 * root.referenceScale
-                fillColor: "#a6081324"
-                strokeColor: action.visualFocus ? "#80e6ff"
-                                                : action.enabled ? "#7096c8" : "#3c5473"
+                fillColor: !action.enabled ? HoloniightPalette.surfaceRaised
+                           : action.down ? HoloniightPalette.surfaceElevated
+                           : action.hovered ? HoloniightPalette.surfaceHover
+                                            : HoloniightPalette.surface
+                strokeColor: action.visualFocus ? HoloniightPalette.borderFocus
+                             : action.down || action.hovered ? HoloniightPalette.borderActive
+                                                            : HoloniightPalette.borderPassive
                 strokeWidth: action.visualFocus ? 2 : 1
                 joinStyle: ShapePath.RoundJoin
                 startX: chamfer

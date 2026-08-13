@@ -13,7 +13,8 @@ Item {
     property Item firstSystemAction
     property Item lastSystemAction
     readonly property alias passwordFocusTarget: response
-    readonly property alias footerFocusTarget: sessionSelector
+    readonly property Item footerFocusTarget: keyboardSelector.enabled
+                                               ? keyboardSelector : sessionSelector
     readonly property var currentUser: userSelector.currentIndex >= 0
                                        ? greeterController.users[userSelector.currentIndex]
                                        : null
@@ -22,8 +23,6 @@ Item {
     property string selectedUser: greeterController.manualMode ? username.text :
                                   (userSelector.currentIndex >= 0 ? userSelector.currentValue : "")
 
-    function openRebootConfirmation() { rebootDialog.open() }
-    function openPowerConfirmation() { powerDialog.open() }
     function focusPassword() {
         if (response.visible && response.enabled)
             response.forceActiveFocus(Qt.TabFocusReason)
@@ -182,9 +181,15 @@ Item {
                     text = ""
                 }
                 Keys.onPressed: function(event) {
-                    if (event.key === Qt.Key_CapsLock)
+                    if (event.key === Qt.Key_Backtab) {
+                        if (panel.lastSystemAction)
+                            panel.lastSystemAction.forceActiveFocus(Qt.BacktabFocusReason)
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_CapsLock) {
                         panel.capsLockOn = !panel.capsLockOn
+                    }
                 }
+                Keys.priority: Keys.BeforeItem
                 onVisibleChanged: {
                     if (!visible)
                         text = ""
@@ -193,6 +198,7 @@ Item {
                 }
                 KeyNavigation.tab: reveal.visible ? reveal : primary
                 KeyNavigation.backtab: panel.lastSystemAction
+                KeyNavigation.priority: KeyNavigation.BeforeItem
             }
             Label {
                 anchors.left: parent.left
@@ -213,7 +219,18 @@ Item {
                 height: 44
                 text: pressed ? "◉" : "◎"
                 Accessible.name: "Hold to reveal password"
-                background: Item {}
+                background: Rectangle {
+                    readonly property real semanticRadius:
+                        HnAppearance.roundedRadius(HnSurfaceRole.Control,
+                                                   width, height,
+                                                   HnAppearance.revision)
+                    radius: semanticRadius
+                    color: reveal.down ? HoloniightPalette.surfaceElevated
+                                       : reveal.hovered ? HoloniightPalette.surfaceHover
+                                                        : "transparent"
+                    border.width: reveal.visualFocus ? HnMetrics.focusBorderWidth : 0
+                    border.color: HoloniightPalette.borderFocus
+                }
                 KeyNavigation.tab: primary
                 KeyNavigation.backtab: response
             }
@@ -285,47 +302,84 @@ Item {
         }
 
         RowLayout {
+            id: footerRow
             Layout.fillWidth: true
             Layout.preferredHeight: 66
-            spacing: 14
+            Layout.maximumHeight: 66
+            spacing: 0
 
-            Label { text: "▱"; color: "#88a9d0"; font.pointSize: 20.25 }
-            ComboBox {
-                id: sessionSelector
-                objectName: "sessionSelector"
+            Item {
                 Layout.fillWidth: true
-                model: greeterController.sessions
-                textRole: "name"
-                valueRole: "id"
-                enabled: greeterConfigError.length === 0 && count > 0
-                         && !["starting", "authenticated"].includes(greeterController.state)
-                background: Item {}
-                Component.onCompleted: {
-                    const wanted = indexOfValue(greeterController.selectedSession)
-                    if (wanted >= 0)
-                        currentIndex = wanted
+                Layout.preferredHeight: 66
+                Layout.preferredWidth: 1
+
+                FooterSelector {
+                    id: sessionSelector
+                    objectName: "sessionSelector"
+                    anchors.fill: parent
+                    anchors.margins: 5
+                    iconText: "▱"
+                    model: greeterController.sessions
+                    textRole: "name"
+                    valueRole: "id"
+                    enabled: greeterConfigError.length === 0 && count > 0
+                             && !["starting", "authenticated"].includes(greeterController.state)
+                    Component.onCompleted: {
+                        const wanted = indexOfValue(greeterController.selectedSession)
+                        if (wanted >= 0)
+                            currentIndex = wanted
+                    }
+                    onActivated: {
+                        greeterController.selectedSession = currentValue
+                        panel.focusPassword()
+                    }
+                    KeyNavigation.tab: keyboardSelector.enabled
+                                       ? keyboardSelector : panel.firstSystemAction
+                    KeyNavigation.backtab: primary
                 }
-                onActivated: greeterController.selectedSession = currentValue
-                KeyNavigation.tab: panel.firstSystemAction
-                KeyNavigation.backtab: primary
             }
-            Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 38; color: "#30435e" }
-            Label { text: "⌨"; color: "#88a9d0"; font.pointSize: 16.5 }
-            Label {
-                objectName: "keyboardSelector"
-                Layout.preferredWidth: 100
-                text: greeterCompositor.keyboardLabel
-                color: "#6884aa"
-                horizontalAlignment: Text.AlignHCenter
-                Accessible.description: "Keyboard layout is configured by the administrator"
+
+            Rectangle {
+                id: footerDivider
+                Layout.preferredWidth: 1
+                Layout.preferredHeight: 38
+                color: "#30435e"
             }
-            Button {
-                objectName: "keyboardCycleButton"
-                visible: greeterCompositor.canCycleLayout
-                text: "↻"
-                Accessible.name: "Switch keyboard layout"
-                onClicked: greeterCompositor.cycleLayout()
-                background: Item {}
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 66
+                Layout.preferredWidth: 1
+
+                FooterSelector {
+                    id: keyboardSelector
+                    objectName: "keyboardSelector"
+                    anchors.fill: parent
+                    anchors.margins: 5
+                    iconText: "⌨"
+                    model: greeterCompositor.layouts
+                    textRole: "label"
+                    valueRole: "id"
+                    enabled: greeterCompositor.canCycleLayout
+                    function syncSelection() {
+                        const wanted = indexOfValue(greeterCompositor.keyboardLayoutId)
+                        if (wanted >= 0)
+                            currentIndex = wanted
+                    }
+                    Component.onCompleted: syncSelection()
+                    onActivated: {
+                        greeterCompositor.selectLayout(currentValue)
+                        syncSelection()
+                        panel.focusPassword()
+                    }
+                    KeyNavigation.tab: panel.firstSystemAction
+                    KeyNavigation.backtab: sessionSelector
+
+                    Connections {
+                        target: greeterCompositor
+                        function onLayoutChanged() { keyboardSelector.syncSelection() }
+                    }
+                }
             }
         }
 
@@ -351,20 +405,4 @@ Item {
         }
     }
 
-    Dialog {
-        id: rebootDialog
-        title: "Reboot this computer?"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Yes | Dialog.Cancel
-        onAccepted: greeterController.requestReboot()
-    }
-    Dialog {
-        id: powerDialog
-        title: "Shut down this computer?"
-        modal: true
-        anchors.centerIn: parent
-        standardButtons: Dialog.Yes | Dialog.Cancel
-        onAccepted: greeterController.requestPowerOff()
-    }
 }

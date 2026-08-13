@@ -1,7 +1,9 @@
 #include "services.h"
 #include "state.h"
+#include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusInterface>
+#include <QDBusObjectPath>
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusReply>
@@ -126,6 +128,70 @@ QList<User> SystemAccountSource::users(const QStringList &include, int minUid,
   return result;
 }
 
+LogindPowerService::LogindPowerService(QObject *parent)
+    : IPowerService(parent) {
+  auto bus = QDBusConnection::systemBus();
+  bus.connect(QStringLiteral("org.freedesktop.login1"),
+              QStringLiteral("/org/freedesktop/login1"),
+              QStringLiteral("org.freedesktop.login1.Manager"),
+              QStringLiteral("SessionNew"), this, SLOT(queryCapabilities()));
+  bus.connect(QStringLiteral("org.freedesktop.login1"),
+              QStringLiteral("/org/freedesktop/login1"),
+              QStringLiteral("org.freedesktop.login1.Manager"),
+              QStringLiteral("SessionRemoved"), this,
+              SLOT(queryCapabilities()));
+}
+
+bool LogindPowerService::queryPowerConfirmationRequired(QString *error) const {
+  QDBusInterface manager(QStringLiteral("org.freedesktop.login1"),
+                         QStringLiteral("/org/freedesktop/login1"),
+                         QStringLiteral("org.freedesktop.login1.Manager"),
+                         QDBusConnection::systemBus());
+  const QDBusMessage reply = manager.call(QStringLiteral("ListSessions"));
+  if (!manager.isValid() || reply.type() == QDBusMessage::ErrorMessage ||
+      reply.arguments().isEmpty()) {
+    if (error)
+      *error = reply.errorMessage().isEmpty()
+                   ? QStringLiteral("Could not query logind sessions")
+                   : reply.errorMessage();
+    return true;
+  }
+
+  const QDBusArgument sessions =
+      reply.arguments().first().value<QDBusArgument>();
+  sessions.beginArray();
+  while (!sessions.atEnd()) {
+    QString id;
+    quint32 uid = 0;
+    QString user;
+    QString seat;
+    QDBusObjectPath path;
+    sessions.beginStructure();
+    sessions >> id >> uid >> user >> seat >> path;
+    sessions.endStructure();
+
+    QDBusInterface properties(QStringLiteral("org.freedesktop.login1"),
+                              path.path(),
+                              QStringLiteral("org.freedesktop.DBus.Properties"),
+                              QDBusConnection::systemBus());
+    const QDBusReply<QVariant> classReply = properties.call(
+        QStringLiteral("Get"), QStringLiteral("org.freedesktop.login1.Session"),
+        QStringLiteral("Class"));
+    if (!classReply.isValid()) {
+      sessions.endArray();
+      if (error)
+        *error = classReply.error().message();
+      return true;
+    }
+    if (classReply.value().toString() == QStringLiteral("user")) {
+      sessions.endArray();
+      return true;
+    }
+  }
+  sessions.endArray();
+  return false;
+}
+
 void LogindPowerService::queryCapabilities() {
   auto *interface =
       new QDBusInterface(QStringLiteral("org.freedesktop.login1"),
@@ -133,7 +199,7 @@ void LogindPowerService::queryCapabilities() {
                          QStringLiteral("org.freedesktop.login1.Manager"),
                          QDBusConnection::systemBus(), this);
   if (!interface->isValid()) {
-    emit capabilities(false, false, QStringLiteral("logind unavailable"));
+    emit capabilities(false, false, true, QStringLiteral("logind unavailable"));
     interface->deleteLater();
     return;
   }
@@ -141,7 +207,7 @@ void LogindPowerService::queryCapabilities() {
   const auto reboot = interface->call(QStringLiteral("CanReboot"));
   if (power.type() == QDBusMessage::ErrorMessage ||
       reboot.type() == QDBusMessage::ErrorMessage) {
-    emit capabilities(false, false,
+    emit capabilities(false, false, true,
                       power.type() == QDBusMessage::ErrorMessage
                           ? power.errorMessage()
                           : reboot.errorMessage());
@@ -150,10 +216,15 @@ void LogindPowerService::queryCapabilities() {
   }
   const QString powerValue = power.arguments().value(0).toString();
   const QString rebootValue = reboot.arguments().value(0).toString();
+  QString sessionError;
+  const bool confirmationRequired =
+      queryPowerConfirmationRequired(&sessionError);
+  const QString reason =
+      powerValue == "challenge" || rebootValue == "challenge"
+          ? QStringLiteral("Power action requires authorization")
+          : sessionError;
   emit capabilities(powerValue == "yes", rebootValue == "yes",
-                    powerValue == "challenge" || rebootValue == "challenge"
-                        ? QStringLiteral("Power action requires authorization")
-                        : QString{});
+                    confirmationRequired, reason);
   interface->deleteLater();
 }
 
