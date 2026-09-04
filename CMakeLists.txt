@@ -62,7 +62,7 @@ install(FILES assets/backgrounds/wallpaper.png
 install(FILES ${GREETER_FACE_FILES}
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pixmaps/faces)
 install(FILES deploy/holonight-greeter.conf DESTINATION ${CMAKE_INSTALL_LIBDIR}/tmpfiles.d)
-install(FILES deploy/greetd-config.toml docs/CAGE.md
+install(FILES LICENSE deploy/greetd-config.toml docs/CAGE.md
   DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/holonight-greeter)
 install(PROGRAMS deploy/holonight-greeter-cage-diagnostic
   DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/holonight-greeter)

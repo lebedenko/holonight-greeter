@@ -1,18 +1,85 @@
 # HoloNight Greeter
 
-A Qt 6 / QML greetd greeter for the HoloNight desktop.
+A Qt 6 / QML [greetd](https://sr.ht/~kennylevinsen/greetd/) greeter for the HoloNight desktop.
 
-Build dependencies include Qt 6.11, `layer-shell-qt`, toml++, and the installed HoloNight Qt modules. Layer shell is
-used to bind each fullscreen greeter surface to its intended Wayland output.
+![HoloNight Greeter](docs/images/greeter.png)
+
+## Features
+
+- Fullscreen Wayland surfaces on every connected output, with a configurable primary output
+- Local account discovery with UID, allowlist, denylist, locked-account, and avatar filtering
+- Wayland session discovery and persisted last-user/last-session selection
+- Configurable keyboard layouts and runtime layout switching under Hyprland
+- Password, multi-step, and fingerprint authentication prompts through greetd
+- Confirmed reboot and power-off actions through logind
+- Windowed demo scenarios with simulated authentication and no privileged side effects
+- Built-in isolated Hyprland launcher, with Cage available as an explicit rescue backend
+
+## Requirements
+
+Building requires a C++23 compiler, CMake 3.25 or newer, Ninja, Qt 6.11 (`Core`, `Gui`, `Quick`, `Qml`, `Network`,
+`DBus`, and `Test` when tests are enabled), `layer-shell-qt`, toml++, HoloNight Qt 0.1.1 (`Core` and `Controls`),
+and GTest when tests are enabled.
+
+Production additionally requires greetd, logind, and either Hyprland (the default) or Cage. Layer shell binds each
+fullscreen greeter surface to its intended Wayland output.
+
+## Build and test
 
 ```sh
-cmake -S . -B build -G Ninja -DBUILD_TESTING=ON -DCMAKE_INSTALL_PREFIX="$HOME/.local"
+cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
 cmake --build build
-cmake --install build
+ctest --test-dir build --output-on-failure
 ```
 
-For a production system installation, set the `/usr` prefix while configuring so GNUInstallDirs places machine
-configuration under `/etc` rather than `/usr/etc`:
+Equivalent Task commands are available:
+
+```sh
+task build
+task test
+task lint
+```
+
+## Demo
+
+Run the greeter as a regular window from an existing graphical session:
+
+```sh
+./build/holonight-greeter --demo
+./build/holonight-greeter --demo-scenario wrong-password
+./build/holonight-greeter --demo-scenario otp
+./build/holonight-greeter --demo-scenario fingerprint
+```
+
+Supported scenarios are `default`, `wrong-password`, `otp`, and `fingerprint`; specifying a scenario implies
+`--demo`. The demo uses configured read-only account and session discovery, including local display names and
+avatars. Authentication, saved state, greetd communication, and logind actions are deterministic simulations.
+
+On a compositor with `grim` and `slurp`, capture the demo with:
+
+```sh
+grim -g "$(slurp)" greeter.png
+```
+
+## Configuration
+
+The sample [configuration](config/greeter.toml) covers:
+
+- the `hyprland` or `cage` compositor backend and optional primary output;
+- listed or manually entered users, UID bounds, filters, and avatars;
+- session search directories, filters, and default session;
+- keyboard layouts, variants, labels, and XKB options; and
+- the background image path.
+
+Configuration uses a strictly validated TOML v1 schema. Production defaults to `/etc/holonight/greeter.toml` and
+accepts `--config PATH` and `--state PATH`. A missing configuration is nonfatal and uses compiled defaults; invalid
+configuration disables authentication. Accounts without an assigned avatar use the fallback image bundled into the
+executable. The system installation also provides optional faces under `/usr/share/pixmaps/faces`.
+
+## System installation
+
+Configure with the `/usr` prefix so GNUInstallDirs places machine configuration under `/etc`, then install and
+provision the greeter state directory:
 
 ```sh
 cmake -S . -B build-system -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -22,28 +89,28 @@ sudo cmake --install build-system
 sudo systemd-tmpfiles --create holonight-greeter.conf
 ```
 
-`task install:system` performs those commands. It installs and provisions the greeter but intentionally does not edit
-`/etc/greetd/config.toml`; merge the documented example separately after preserving the administrator configuration.
+`task install:system` performs the same steps. Installation intentionally does not modify
+`/etc/greetd/config.toml`. After preserving the administrator-owned configuration, merge the relevant values from
+[the greetd example](deploy/greetd-config.toml). Its greeter command is:
 
 ```sh
-task test
-./build/holonight-greeter --demo
-./build/holonight-greeter --demo-scenario wrong-password
-./build/holonight-greeter --demo-scenario otp
-./build/holonight-greeter --demo-scenario fingerprint
+/usr/bin/holonight-greeter-session --config /etc/holonight/greeter.toml
 ```
 
-Production accepts `--config PATH` and `--state PATH`. Demo scenarios are `default`, `wrong-password`, `otp`, and
-`fingerprint`; specifying a scenario implies `--demo`. Demo uses the configured read-only account and session
-discovery, including local display names and avatars. Authentication, saved state, greetd communication, and logind
-actions remain deterministic simulations with no privileged side effects.
+The launcher uses an isolated Hyprland instance by default and generates its private configuration under `/run`.
+Select Cage in `greeter.toml` or override it explicitly with `--backend cage`. Startup failure is returned to greetd;
+there is no automatic fallback between backends.
 
-The install includes optional account faces under `/usr/share/pixmaps/faces`. Accounts without an assigned avatar use
-the fallback image bundled into the greeter executable.
+For a repository build on an isolated VT without replacing the installed greeter or primary greetd configuration,
+run `task live:test`. See the [compositor deployment and recovery guide](docs/CAGE.md) before live testing or changing
+the production login path.
 
-The installed greetd reference command is `/usr/bin/holonight-greeter-session --config
-/etc/holonight/greeter.toml`. It selects only built-in adapters: Hyprland
-by default, or Cage when configured or selected with `--backend cage`. Hyprland uses a generated private
-configuration under `/run`; startup failure is returned to greetd and never triggers an automatic Cage fallback.
+## Documentation
 
-See [the MVP SDD](docs/sdd/greeter-mvp/SPEC.md) and [Cage deployment guide](docs/CAGE.md).
+- [MVP specification](docs/sdd/greeter-mvp/SPEC.md)
+- [MVP design](docs/sdd/greeter-mvp/DESIGN.md)
+- [Compositor deployment, live testing, and recovery](docs/CAGE.md)
+
+## License
+
+GPL-3.0-or-later — see [LICENSE](LICENSE).
