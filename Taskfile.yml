@@ -3,6 +3,10 @@ vars:
   SYSTEM_BUILD_DIR: build-system
   LIVE_ROOT: /tmp/holonight-greeter-live
 tasks:
+  license-check:
+    desc: Validate REUSE licensing metadata
+    cmds: [reuse lint]
+
   configure:
     cmds: [cmake -S . -B build -G Ninja -DBUILD_TESTING=ON]
   build:
