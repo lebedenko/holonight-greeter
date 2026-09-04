@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build, test, and stage installation
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build CI image
+        run: docker build --file Dockerfile.ci --tag holonight-greeter-ci:local .
+
+      - name: Checkout holonight-config dependency
+        uses: actions/checkout@v4
+        with:
+          repository: lebedenko/holonight-config
+          ref: d05367db857e607ee8f394197b3436dda7b1c475
+          path: holonight-config-dep
+
+      - name: Checkout holonight-qt dependency
+        uses: actions/checkout@v4
+        with:
+          repository: lebedenko/holonight-qt
+          ref: ab71002e6957c484ffd22d286dac2ec56812c336
+          path: holonight-qt-dep
+
+      - name: Build and verify
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            holonight-greeter-ci:local \
+            bash -euxo pipefail -c '
+              git config --global --add safe.directory /workspace
+
+              cmake -S holonight-config-dep -B holonight-config-dep/build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr
+              cmake --build holonight-config-dep/build --parallel
+              cmake --install holonight-config-dep/build
+
+              cmake -S holonight-qt-dep -B holonight-qt-dep/build -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_INSTALL_PREFIX=/usr
+              cmake --build holonight-qt-dep/build --parallel
+              cmake --install holonight-qt-dep/build
+
+              cmake -S . -B build-ci -G Ninja \
+                -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DCMAKE_INSTALL_PREFIX=/usr
+              cmake --build build-ci --parallel
+              ctest --test-dir build-ci --output-on-failure --no-tests=error
+              cmake --build build-ci --target format-check
+              qmllint -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml qml/Background.qml
+              git diff --check
+
+              test ! -e /etc/greetd/config.toml
+              DESTDIR=/tmp/holonight-greeter-stage cmake --install build-ci
+              test -x /tmp/holonight-greeter-stage/usr/bin/holonight-greeter
+              test -x /tmp/holonight-greeter-stage/usr/bin/holonight-greeter-session
+              test -f /tmp/holonight-greeter-stage/etc/holonight/greeter.toml
+              test -f /tmp/holonight-greeter-stage/usr/share/holonight-greeter/backgrounds/wallpaper.png
+              test "$(find /tmp/holonight-greeter-stage/usr/share/pixmaps/faces -type f | wc -l)" -eq 8
+              test -f /tmp/holonight-greeter-stage/usr/lib/tmpfiles.d/holonight-greeter.conf
+              test -f /tmp/holonight-greeter-stage/usr/share/doc/holonight-greeter/greetd-config.toml
+              test -f /tmp/holonight-greeter-stage/usr/share/doc/holonight-greeter/CAGE.md
+              test -x /tmp/holonight-greeter-stage/usr/libexec/holonight-greeter/holonight-greeter-cage-diagnostic
+              test ! -e /tmp/holonight-greeter-stage/etc/greetd/config.toml
+              test ! -e /etc/greetd/config.toml
+            '

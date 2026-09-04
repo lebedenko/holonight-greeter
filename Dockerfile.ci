@@ -1,0 +1,24 @@
+FROM archlinux:latest
+
+RUN pacman -Syu --noconfirm && \
+    pacman -S --noconfirm \
+        base-devel \
+        clang \
+        cmake \
+        dbus \
+        git \
+        gtest \
+        layer-shell-qt \
+        ninja \
+        pkgconf \
+        qt6-5compat \
+        qt6-base \
+        qt6-declarative \
+        qt6-wayland \
+        ripgrep \
+        tomlplusplus \
+        wayland \
+        wayland-protocols \
+    && pacman -Scc --noconfirm
+
+ENV PATH="/usr/lib/qt6/bin:${PATH}"
