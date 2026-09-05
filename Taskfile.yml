@@ -1,5 +1,6 @@
 version: "3"
 vars:
+  QML_IMPORT_DIR: /usr/lib/qt6/qml
   SYSTEM_BUILD_DIR: build-system
   LIVE_ROOT: /tmp/holonight-greeter-live
 tasks:
@@ -52,5 +53,5 @@ tasks:
     deps: [build]
     cmds:
       - cmake --build build --target format-check
-      - qmllint -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml qml/Background.qml
+      - qmllint --bare -I {{.QML_IMPORT_DIR}} -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml qml/Background.qml
       - git diff --check

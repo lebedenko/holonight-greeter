@@ -3,7 +3,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Shapes
-import Qt5Compat.GraphicalEffects
 import Holonight.Controls
 
 Item {
@@ -68,43 +67,18 @@ Item {
         anchors.bottomMargin: 22
         spacing: 0
 
-        Item {
+        HnAvatar {
+            objectName: "userAvatar"
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 132
             Layout.preferredHeight: 132
-
-            Rectangle {
-                anchors.fill: parent
-                radius: width / 2
-                color: "#0b1729"
-                border.color: "#7398c5"
-                border.width: 1
-            }
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: 4
-                radius: width / 2
-                color: "#0b1729"
-                Image {
-                    id: avatarImage
-                    anchors.fill: parent
-                    source: panel.selectedAvatar.length > 0
-                            ? "file:" + panel.selectedAvatar
-                            : Qt.resolvedUrl("images/no-avatar.png")
-                    fillMode: Image.PreserveAspectCrop
-                    smooth: true
-                    visible: false
-                }
-                OpacityMask {
-                    anchors.fill: parent
-                    source: avatarImage
-                    maskSource: Rectangle {
-                        width: avatarImage.width
-                        height: avatarImage.height
-                        radius: width / 2
-                    }
-                }
-            }
+            size: 132
+            imageInset: 4
+            backgroundColor: "#0b1729"
+            ringColor: "#7398c5"
+            ringWidth: 1
+            source: panel.selectedAvatar.length > 0 ? "file:" + panel.selectedAvatar : ""
+            fallbackSource: Qt.resolvedUrl("images/no-avatar.png")
         }
 
         ComboBox {
