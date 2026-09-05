@@ -1,22 +1,121 @@
 #include "desktopentry.h"
 
 #include <QDir>
-#include <QFileInfo>
+#include <QFile>
+#include <QMap>
 #include <QSet>
-#include <QSettings>
 #include <QStandardPaths>
 #include <algorithm>
+#include <optional>
 
 namespace Greeter {
 namespace {
-bool visibleForDesktop(const QSettings &entry) {
+using DesktopEntry = QMap<QString, QStringList>;
+
+std::optional<QStringList> decodeDesktopValue(const QString &value, bool list) {
+  QStringList result;
+  QString word;
+  for (qsizetype i = 0; i < value.size(); ++i) {
+    const QChar ch = value[i];
+    if (ch == '\\') {
+      if (++i == value.size())
+        return std::nullopt;
+      switch (value[i].unicode()) {
+      case 's':
+        word += ' ';
+        break;
+      case 'n':
+        word += '\n';
+        break;
+      case 't':
+        word += '\t';
+        break;
+      case 'r':
+        word += '\r';
+        break;
+      case '\\':
+        word += '\\';
+        break;
+      case ';':
+        if (!list)
+          return std::nullopt;
+        word += ';';
+        break;
+      default:
+        return std::nullopt;
+      }
+    } else if (ch == ';' && list) {
+      result += word;
+      word.clear();
+    } else {
+      word += ch;
+    }
+  }
+  if (!list || !word.isEmpty())
+    result += word;
+  return result;
+}
+
+DesktopEntry readDesktopEntry(const QString &path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly))
+    return {};
+  DesktopEntry entry;
+  bool inDesktopEntry = false;
+  bool foundDesktopEntry = false;
+  const QSet<QString> stringKeys{"Type", "Name",   "Exec",     "TryExec",
+                                 "Icon", "Hidden", "NoDisplay"};
+  const QSet<QString> listKeys{"OnlyShowIn", "NotShowIn"};
+  while (!file.atEnd()) {
+    QString line = QString::fromUtf8(file.readLine());
+    if (line.endsWith('\n'))
+      line.chop(1);
+    if (line.endsWith('\r'))
+      line.chop(1);
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith('#'))
+      continue;
+    if (trimmed.startsWith('[')) {
+      inDesktopEntry = trimmed == "[Desktop Entry]";
+      if (inDesktopEntry && foundDesktopEntry)
+        return {};
+      foundDesktopEntry |= inDesktopEntry;
+      continue;
+    }
+    if (!inDesktopEntry)
+      continue;
+    const qsizetype equals = line.indexOf('=');
+    if (equals < 0)
+      return {};
+    const QString key = line.left(equals).trimmed();
+    const bool list = listKeys.contains(key);
+    if (!list && !stringKeys.contains(key))
+      continue;
+    if (entry.contains(key))
+      return {};
+    qsizetype start = equals + 1;
+    while (start < line.size() && line[start].isSpace())
+      ++start;
+    // Desktop strings have their own escaping rules. Quotes belong to Exec's
+    // command parser; an INI reader such as QSettings consumes them too early.
+    const auto decoded = decodeDesktopValue(line.mid(start), list);
+    if (!decoded)
+      return {};
+    entry.insert(key, *decoded);
+  }
+  return file.error() == QFileDevice::NoError ? entry : DesktopEntry{};
+}
+
+QString entryString(const DesktopEntry &entry, const QString &key) {
+  return entry.value(key).value(0);
+}
+
+bool visibleForDesktop(const DesktopEntry &entry) {
   const QStringList desktops =
       QString::fromLocal8Bit(qgetenv("XDG_CURRENT_DESKTOP"))
           .split(':', Qt::SkipEmptyParts);
-  const QStringList only =
-      entry.value("OnlyShowIn").toString().split(';', Qt::SkipEmptyParts);
-  const QStringList excluded =
-      entry.value("NotShowIn").toString().split(';', Qt::SkipEmptyParts);
+  const QStringList only = entry.value("OnlyShowIn");
+  const QStringList excluded = entry.value("NotShowIn");
   if (!only.isEmpty()) {
     bool matched = false;
     for (const auto &desktop : desktops)
@@ -128,22 +227,21 @@ QList<Session> discoverSessions(const QStringList &directories,
       if ((!include.isEmpty() && !include.contains(id)) || exclude.contains(id))
         continue;
       const QString path = dir.filePath(id);
-      QSettings entry(path, QSettings::IniFormat);
-      entry.beginGroup("Desktop Entry");
-      if (entry.value("Type").toString() != "Application" ||
-          entry.value("Hidden").toString() == "true" ||
-          entry.value("NoDisplay").toString() == "true" ||
+      const auto entry = readDesktopEntry(path);
+      if (entryString(entry, "Type") != "Application" ||
+          entryString(entry, "Hidden") == "true" ||
+          entryString(entry, "NoDisplay") == "true" ||
           !visibleForDesktop(entry))
         continue;
-      const QString name = entry.value("Name").toString();
-      const QString tryExec = entry.value("TryExec").toString();
+      const QString name = entryString(entry, "Name");
+      const QString tryExec = entryString(entry, "TryExec");
       if (name.isEmpty() || (!tryExec.isEmpty() &&
                              QStandardPaths::findExecutable(tryExec).isEmpty()))
         continue;
       QString error;
       const auto command =
-          parseDesktopExec(entry.value("Exec").toString(), name, path,
-                           entry.value("Icon").toString(), &error);
+          parseDesktopExec(entryString(entry, "Exec"), name, path,
+                           entryString(entry, "Icon"), &error);
       if (!command.isEmpty())
         result.push_back({id, name, command});
     }

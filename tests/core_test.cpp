@@ -12,6 +12,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QProcess>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -322,6 +323,164 @@ TEST(DesktopExec, RejectsUnknownCodeAndMalformedQuote) {
   EXPECT_TRUE(Greeter::parseDesktopExec("session \"oops", {}, {}, {}, &error)
                   .isEmpty());
 }
+TEST(DesktopDiscovery, PreservesQuotedInstalledSessionCommands) {
+  for (const QString &prefix :
+       {QString("/usr"), QString("/home/test user/.local")}) {
+    for (const QString &compositor : {QString("hyprland"), QString("sway")}) {
+      SCOPED_TRACE((prefix + ":" + compositor).toStdString());
+      QTemporaryDir temporary;
+      ASSERT_TRUE(temporary.isValid());
+      QFile file(temporary.filePath("holonight.desktop"));
+      ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+      const QString executable = prefix + "/bin/holonight-session";
+      file.write(("[Desktop Entry]\nType=Application\nName=HoloNight\nExec=\"" +
+                  executable + "\" " + compositor + "\n")
+                     .toUtf8());
+      file.close();
+
+      const auto sessions =
+          Greeter::discoverSessions({temporary.path()}, {}, {});
+      ASSERT_EQ(sessions.size(), 1);
+      EXPECT_EQ(sessions.first().command,
+                QStringList({executable, compositor}));
+    }
+  }
+}
+
+TEST(DesktopDiscovery, DecodesDesktopEscapesBeforeCommandQuoting) {
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  QFile file(temporary.filePath("escaped.desktop"));
+  ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+  file.write(R"desktop([Desktop Entry]
+Type=Application
+Name=Holo\sNight, desktop
+Icon=session-icon
+Exec="/opt/Holo\sNight/session" "back\\\\slash" "say \\"hello\\"" "\\$HOME" "a,b;c" %c %i %%
+[Desktop Action Other]
+Exec=wrong-command
+)desktop");
+  file.close();
+
+  const auto sessions = Greeter::discoverSessions({temporary.path()}, {}, {});
+  ASSERT_EQ(sessions.size(), 1);
+  EXPECT_EQ(sessions.first().name, "Holo Night, desktop");
+  EXPECT_EQ(
+      sessions.first().command,
+      QStringList({"/opt/Holo Night/session", "back\\slash", "say \"hello\"",
+                   "$HOME", "a,b;c", "Holo Night, desktop", "--icon",
+                   "session-icon", "%"}));
+}
+
+TEST(DesktopDiscovery, PreservesUnquotedCommandsAndEntryWhitespace) {
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  QFile file(temporary.filePath("uwsm.desktop"));
+  ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+  file.write("# Session descriptor\n\n[Desktop Entry]\r\n"
+             "Type = Application\r\nName = Hyprland (uwsm-managed)\r\n"
+             "Exec = uwsm start -e -D Hyprland hyprland.desktop\r\n");
+  file.close();
+
+  const auto sessions = Greeter::discoverSessions({temporary.path()}, {}, {});
+  ASSERT_EQ(sessions.size(), 1);
+  EXPECT_EQ(sessions.first().command,
+            QStringList(
+                {"uwsm", "start", "-e", "-D", "Hyprland", "hyprland.desktop"}));
+}
+
+TEST(DesktopDiscovery, RejectsMalformedSessionEntries) {
+  for (const QByteArray &body :
+       {QByteArray("[Desktop Entry]\nExec=\"session hyprland\n"),
+        QByteArray("[Desktop Entry]\nExec=session\\q hyprland\n"),
+        QByteArray("[Desktop Entry]\nExec=session\\\n"),
+        QByteArray("[Desktop Entry]\nExec=first\nExec=second\n"),
+        QByteArray("[Desktop Action Other]\nExec=session\n")}) {
+    SCOPED_TRACE(body.toStdString());
+    QTemporaryDir temporary;
+    ASSERT_TRUE(temporary.isValid());
+    QFile file(temporary.filePath("invalid.desktop"));
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write(body + "Type=Application\nName=Invalid\n");
+    file.close();
+    EXPECT_TRUE(
+        Greeter::discoverSessions({temporary.path()}, {}, {}).isEmpty());
+  }
+}
+
+TEST(DesktopDiscovery, PreservesFiltersAndDirectoryPrecedence) {
+  QTemporaryDir first;
+  QTemporaryDir second;
+  ASSERT_TRUE(first.isValid());
+  ASSERT_TRUE(second.isValid());
+  for (const QString &directory : {first.path(), second.path()}) {
+    QFile file(directory + "/session.desktop");
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write(
+        "[Desktop Entry]\nType=Application\nName=Session\nExec=session\n");
+    if (directory == first.path())
+      file.write("Hidden=true\n");
+  }
+  EXPECT_TRUE(Greeter::discoverSessions({first.path(), second.path()}, {}, {})
+                  .isEmpty());
+  EXPECT_TRUE(Greeter::discoverSessions({second.path()}, {"other.desktop"}, {})
+                  .isEmpty());
+  EXPECT_TRUE(
+      Greeter::discoverSessions({second.path()}, {}, {"session.desktop"})
+          .isEmpty());
+  ASSERT_EQ(Greeter::discoverSessions({second.path()}, {"session.desktop"}, {})
+                .size(),
+            1);
+}
+
+TEST(DesktopDiscovery, DecodesDesktopListsAndHonorsVisibility) {
+  const bool hadDesktop = qEnvironmentVariableIsSet("XDG_CURRENT_DESKTOP");
+  const QByteArray oldDesktop = qgetenv("XDG_CURRENT_DESKTOP");
+  const auto restoreDesktop = qScopeGuard([&] {
+    if (hadDesktop)
+      qputenv("XDG_CURRENT_DESKTOP", oldDesktop);
+    else
+      qunsetenv("XDG_CURRENT_DESKTOP");
+  });
+  qputenv("XDG_CURRENT_DESKTOP", "Test;Desktop:Hyprland");
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  for (const QByteArray &extra : {QByteArray(), QByteArray("NoDisplay=true\n"),
+                                  QByteArray("NotShowIn=Other;Hyprland;\n")}) {
+    QFile file(temporary.filePath("session.desktop"));
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write("[Desktop Entry]\nType=Application\nName=Session\nExec=session\n"
+               "OnlyShowIn=Other;Test\\;Desktop;\n" +
+               extra);
+    file.close();
+    EXPECT_EQ(Greeter::discoverSessions({temporary.path()}, {}, {}).size(),
+              extra.isEmpty() ? 1 : 0);
+  }
+}
+
+TEST(DesktopDiscovery, ChecksTryExecWithoutTreatingItAsACommandLine) {
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  const QString executable = temporary.filePath("session with spaces");
+  QFile program(executable);
+  ASSERT_TRUE(program.open(QIODevice::WriteOnly));
+  program.write("#!/bin/sh\nexit 0\n");
+  program.close();
+  ASSERT_TRUE(program.setPermissions(QFileDevice::ReadOwner |
+                                     QFileDevice::WriteOwner |
+                                     QFileDevice::ExeOwner));
+  for (const QString &tryExec : {executable, temporary.filePath("missing")}) {
+    QFile file(temporary.filePath("session.desktop"));
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    file.write(("[Desktop Entry]\nType=Application\nName=Session\nExec=\"" +
+                executable + "\"\nTryExec=" + tryExec + "\n")
+                   .toUtf8());
+    file.close();
+    EXPECT_EQ(Greeter::discoverSessions({temporary.path()}, {}, {}).size(),
+              tryExec == executable ? 1 : 0);
+  }
+}
+
 TEST(State, RoundTripsAndOmitsManualUser) {
   QTemporaryDir temporary;
   const QString path = temporary.filePath("state.json");
