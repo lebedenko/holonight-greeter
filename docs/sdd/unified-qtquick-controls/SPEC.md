@@ -1,6 +1,6 @@
 # UQC-106: Runtime Quick Controls
 
-Status: Local implementation and acceptance complete; remote publication checks pending.
+Status: Complete — local acceptance and remote CI/licensing passed.
 
 ## Scope and baselines
 

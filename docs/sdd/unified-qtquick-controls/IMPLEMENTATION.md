@@ -1,6 +1,6 @@
 # UQC-106 implementation record
 
-Status: Local implementation and acceptance complete; remote greeter checks pending.
+Status: Complete — local acceptance and remote greeter CI/licensing passed.
 
 ## Baselines and publication order
 
@@ -91,11 +91,17 @@ Clang-analyzer checks cover all 15 owned C++ translation units, using a temporar
 analysis database without GCC-only flags. Python/YAML/workflow shell syntax,
 Taskfile parsing, local SDD links, REUSE licensing and whitespace pass.
 
-## Remaining publication and integration gates
+## Published acceptance and remaining ecosystem gates
 
-Publish greeter implementation, require green remote CI/licensing, and publish its
-final acceptance handoff before advancing the umbrella gitlink or marking UQC-106
-Done. Shell canonical main was rechecked as `723763e09ff815d344a6cb01529dd8345a43b316`;
-its checkout is clean and AGENTS.md was read. UQC-102 remains Planned until that
-handoff. UQC-201 remains Planned and the initiative remains Accepted; human-operated
+Greeter implementation `dbc86f34b6ad0d6eb75351eedacc08f756b82d97` is published and
+canonically confirmed. CI `34292227990` passes its complete build/test/static/
+launch/install job (6 minutes 40 seconds); licensing `34292227948` passes.
+This documentation handoff closes UQC-106 local acceptance; its authoritative
+revision is the umbrella gitlink after publication confirmation. The final
+umbrella checkpoint records remote checks for this documentation revision.
+
+Shell canonical main was rechecked as `723763e09ff815d344a6cb01529dd8345a43b316`;
+its checkout is clean and AGENTS.md was read. The next Ready UQC-102 assignment
+uses the corrected, published provider prerequisite `00e6e20`.
+UQC-201 remains Planned and the initiative remains Accepted; human-operated
 pre-session/compositor and ecosystem integration are not claimed by local tests.
