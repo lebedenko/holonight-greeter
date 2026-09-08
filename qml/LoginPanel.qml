@@ -1,8 +1,9 @@
 // qmllint disable unqualified
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import QtQuick.Shapes
+import Holonight.Core
 import Holonight.Controls
 
 Item {
@@ -81,7 +82,7 @@ Item {
             fallbackSource: Qt.resolvedUrl("images/no-avatar.png")
         }
 
-        ComboBox {
+        Controls.ComboBox {
             id: userSelector
             objectName: "userSelector"
             Layout.topMargin: 16
@@ -92,7 +93,7 @@ Item {
             valueRole: "username"
             enabled: count > 1 && !["starting", "authenticated"].includes(greeterController.state)
             font.pointSize: 22.5
-            contentItem: Label {
+            contentItem: Controls.Label {
                 text: userSelector.displayText
                 color: "#f3f5fc"
                 font: userSelector.font
@@ -106,7 +107,7 @@ Item {
             KeyNavigation.backtab: panel.lastSystemAction
         }
 
-        TextField {
+        Controls.TextField {
             id: username
             objectName: "usernameField"
             visible: greeterController.manualMode
@@ -118,7 +119,7 @@ Item {
             KeyNavigation.tab: primary
         }
 
-        Label {
+        Controls.Label {
             visible: !greeterController.manualMode
             Layout.alignment: Qt.AlignHCenter
             text: "Local account"
@@ -128,7 +129,7 @@ Item {
 
         Item { Layout.preferredHeight: 34 }
 
-        Label {
+        Controls.Label {
             visible: response.visible
             text: greeterController.prompt
             color: "#7194c1"
@@ -141,7 +142,7 @@ Item {
             Layout.preferredHeight: 57
             Layout.topMargin: 8
 
-            TextField {
+            Controls.TextField {
                 id: response
                 objectName: "responseField"
                 anchors.fill: parent
@@ -174,7 +175,7 @@ Item {
                 KeyNavigation.backtab: panel.lastSystemAction
                 KeyNavigation.priority: KeyNavigation.BeforeItem
             }
-            Label {
+            Controls.Label {
                 anchors.left: parent.left
                 anchors.leftMargin: 17
                 anchors.verticalCenter: parent.verticalCenter
@@ -182,7 +183,7 @@ Item {
                 color: "#83a8d3"
                 font.pointSize: 18.75
             }
-            Button {
+            Controls.Button {
                 id: reveal
                 objectName: "revealButton"
                 visible: greeterController.secret
@@ -210,7 +211,7 @@ Item {
             }
         }
 
-        Label {
+        Controls.Label {
             Layout.fillWidth: true
             Layout.preferredHeight: 28
             Layout.topMargin: 12
@@ -221,7 +222,7 @@ Item {
             elide: Text.ElideRight
         }
 
-        Label {
+        Controls.Label {
             visible: greeterController.state === "informational-prompt"
             Layout.fillWidth: true
             text: greeterController.prompt
@@ -231,7 +232,7 @@ Item {
             wrapMode: Text.Wrap
         }
 
-        Label {
+        Controls.Label {
             visible: greeterConfigError.length > 0
             Layout.fillWidth: true
             text: "Configuration error\n" + greeterConfigError
@@ -241,7 +242,7 @@ Item {
 
         Item { Layout.fillHeight: true; Layout.minimumHeight: 18 }
 
-        Button {
+        Controls.Button {
             id: primary
             objectName: "primaryButton"
             Layout.fillWidth: true
@@ -363,7 +364,7 @@ Item {
             color: "#30435e"
         }
 
-        Label {
+        Controls.Label {
             Layout.fillWidth: true
             Layout.topMargin: 18
             text: greeterController.status.length > 0 ? greeterController.status

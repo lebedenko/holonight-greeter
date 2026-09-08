@@ -1,11 +1,12 @@
 # UQC-106: Runtime Quick Controls
 
-Status: Accepted design; implementation pending.
+Status: Local implementation and acceptance complete; remote publication checks pending.
 
 ## Scope and baselines
 
 Greeter baseline: `9130c9ccbf05986ab1843ae322831e7fe9efdac9`.
-Provider: `478ef7c40a22c7c3f7ea6f45d9205411b5504834`.
+Provider: `00e6e208b6c9b30d89b66ef3aeb4ef8175050764` (authorized UQC-109 repair
+of initial prerequisite `478ef7c40a22c7c3f7ea6f45d9205411b5504834`).
 Configuration: `fe69a59e6b73167fd5349223a4d265d75386c139` (unchanged).
 Umbrella assignment: `1219422c9372753996356263785327becefa33fa`.
 

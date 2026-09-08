@@ -11,6 +11,8 @@ RUN pacman -Syu --noconfirm && \
         layer-shell-qt \
         ninja \
         pkgconf \
+        python \
+        ttf-dejavu \
         qt6-5compat \
         qt6-base \
         qt6-declarative \

@@ -19,32 +19,46 @@ A Qt 6 / QML [greetd](https://sr.ht/~kennylevinsen/greetd/) greeter for the Holo
 
 Building requires a C++23 compiler, CMake 3.25 or newer, Ninja, Qt 6.11 (`Core`, `Gui`, `Quick`, `Qml`, `Network`,
 `DBus`, and `Test` when tests are enabled), `layer-shell-qt`, toml++, HoloNight Qt 0.1.1 (`Core` and `Controls`),
-and GTest when tests are enabled.
+and GTest, Python 3, and the Qt QML private headers when tests are enabled.
 
 Production additionally requires greetd, logind, and either Hyprland (the default) or Cage. Layer shell binds each
 fullscreen greeter surface to its intended Wayland output.
 
 ## Build and test
 
-```sh
-cmake -S . -B build -G Ninja -DBUILD_TESTING=ON
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Equivalent Task commands are available:
+Task builds the pinned configuration and Qt provider revisions from sibling checkouts
+into `build/dependencies/prefix`, without a system installation:
 
 ```sh
 task build
 task test
 task lint
+task tidy
+task runtime-launches
 ```
+
+Override `HOLONIGHT_CONFIG_SOURCE` and `HOLONIGHT_QT_SOURCE` when the dependency
+checkouts are elsewhere. Their revisions must match the pins in `Taskfile.yml`.
+For already installed dependencies, direct CMake configuration remains supported:
+
+```sh
+cmake -S . -B build -G Ninja -DBUILD_TESTING=ON -DCMAKE_PREFIX_PATH=/path/to/prefix
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Application QML uses `QtQuick.Controls as Controls`. Each graphical executable
+embeds a Holonight style default; `QT_QUICK_CONTROLS_STYLE=Fusion`, `-style Fusion`,
+and an external `QT_QUICK_CONTROLS_CONF` remain supported. Core/composites retain
+their HoloNight visuals. Installed QML discovery is relative to the executable.
 
 ## Demo
 
 Run the greeter as a regular window from an existing graphical session:
 
 ```sh
+# For the privately staged Task build:
+export LD_LIBRARY_PATH="$PWD/build/dependencies/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ./build/holonight-greeter --demo
 ./build/holonight-greeter --demo-scenario wrong-password
 ./build/holonight-greeter --demo-scenario otp

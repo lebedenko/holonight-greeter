@@ -5,6 +5,8 @@
 #include "outputmanager.h"
 #include "services.h"
 #include <QCommandLineParser>
+#include <QDir>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QLoggingCategory>
 #include <QQmlApplicationEngine>
@@ -58,6 +60,14 @@ int main(int argc, char **argv) {
   QObject::connect(&app, &QCoreApplication::aboutToQuit,
                    [] { qCInfo(greeterLifecycle) << "application-exiting"; });
   QQmlApplicationEngine engine;
+  if (QFileInfo{QCoreApplication::applicationFilePath()}.canonicalFilePath() ==
+      QFileInfo{QStringLiteral(GREETER_BUILD_EXECUTABLE)}.canonicalFilePath()) {
+    engine.addImportPath(QStringLiteral(HOLONIGHT_QML_IMPORT_PATH));
+  } else {
+    engine.addImportPath(
+        QDir{QCoreApplication::applicationDirPath()}.absoluteFilePath(
+            QStringLiteral(GREETER_INSTALL_QML_PATH)));
+  }
   QObject::connect(
       &engine, &QQmlApplicationEngine::objectCreationFailed, &app,
       [] { qCCritical(greeterLifecycle) << "qml-load-failed"; },

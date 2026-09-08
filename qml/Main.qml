@@ -1,11 +1,11 @@
 // qmllint disable unqualified
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls as Controls
 import QtQuick.Shapes
 import Holonight.Core
 import Holonight.Controls
 
-ApplicationWindow {
+Controls.ApplicationWindow {
     id: root
     objectName: "greeterWindow"
     width: greeterDemo ? 1672 : Screen.width
@@ -107,14 +107,14 @@ ApplicationWindow {
         Column {
             spacing: 12 * root.referenceScale
 
-            Label {
+            Controls.Label {
                 text: Qt.formatTime(root.now, "hh:mm")
                 color: "#f5f7ff"
                 font.pointSize: 99 * root.referenceScale
                 font.weight: Font.Light
                 font.family: HolonightTheme.displayFont
             }
-            Label {
+            Controls.Label {
                 text: Qt.formatDate(root.now, "dddd, d MMMM")
                 color: "#7697c5"
                 font.pointSize: 22.5 * root.referenceScale
@@ -127,14 +127,14 @@ ApplicationWindow {
                 opacity: 0.8
             }
             Item { width: 1; height: 7 * root.referenceScale }
-            Label {
+            Controls.Label {
                 text: "HoloNight"
                 color: "#f4f6ff"
                 font.pointSize: 22.5 * root.referenceScale
                 font.weight: Font.Medium
                 font.family: HolonightTheme.titleFont
             }
-            Label {
+            Controls.Label {
                 text: greeterMachineName
                 color: "#5b7da9"
                 font.pointSize: 17.25 * root.referenceScale
@@ -211,13 +211,13 @@ ApplicationWindow {
             height: parent.height
             spacing: 10 * root.referenceScale
 
-            Label {
+            Controls.Label {
                 height: parent.height
                 text: root.pendingPowerAction === "reboot" ? qsTr("Reboot?") : qsTr("Shut down?")
                 color: HoloniightPalette.textPrimary
                 verticalAlignment: Text.AlignVCenter
             }
-            Button {
+            Controls.Button {
                 id: powerYesButton
                 text: qsTr("Yes")
                 height: parent.height
@@ -226,7 +226,7 @@ ApplicationWindow {
                 KeyNavigation.tab: powerNoButton
                 KeyNavigation.backtab: powerNoButton
             }
-            Button {
+            Controls.Button {
                 id: powerNoButton
                 objectName: "powerConfirmationNoButton"
                 text: qsTr("No")
@@ -239,7 +239,7 @@ ApplicationWindow {
         }
     }
 
-    Label {
+    Controls.Label {
         visible: !root.compact
         anchors.left: parent.left
         anchors.leftMargin: 56 * root.referenceScale
@@ -250,7 +250,7 @@ ApplicationWindow {
         font.pointSize: 15 * root.referenceScale
     }
 
-    Label {
+    Controls.Label {
         visible: greeterConfigWarning.length > 0
         anchors.left: parent.left
         anchors.right: parent.right
@@ -308,15 +308,15 @@ ApplicationWindow {
             }
         }
 
-        Button {
+        Controls.Button {
             id: action
             anchors.fill: parent
             enabled: actionFrame.enabled
             text: actionFrame.symbol
             font.pointSize: 23.25 * root.referenceScale
             Accessible.name: actionFrame.description
-            ToolTip.visible: hovered
-            ToolTip.text: actionFrame.description
+            Controls.ToolTip.visible: hovered
+            Controls.ToolTip.text: actionFrame.description
             KeyNavigation.tab: actionFrame.tabTarget
             KeyNavigation.backtab: actionFrame.backtabTarget
             background: Item {}

@@ -26,3 +26,19 @@ services, assert implementation/plugin traces and reject early exits or absent
 evidence. Every subprocess is bounded and reaped. No production diagnostic API.
 
 See [requirements](SPEC.md) and [verification ledger](TASKS.md).
+
+## Resolved provider incompatibility (UQC-109)
+
+Opening FooterSelector with the real controller’s QVariantList model and
+`iconRole: ""` emits `Unable to assign QVariantMap to QUrl` from
+`HnIconComboBox.qml:199`. Qt's delegate model returns the row for `rowModel[""]`.
+The existing `roleValue()` helper already returns an empty string for empty roles,
+but the delegate's first branch bypasses that guard.
+
+User-authorized provider correction: guard the delegate lookup with
+`root.iconRole.length > 0 && rowModel && rowModel[root.iconRole] !== undefined`,
+then keep its existing roleValue fallback. Provider regression coverage verifies
+empty icon roles with QVariantList rows under Holonight/Fusion. Published provider
+handoff `00e6e208b6c9b30d89b66ef3aeb4ef8175050764` is the corrected prerequisite.
+No configuration API or format change is needed. A consumer delegate replacement
+would duplicate the provider’s painting and bypass the planned public composite.

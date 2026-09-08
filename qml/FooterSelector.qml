@@ -1,14 +1,15 @@
 // qmllint disable unqualified
 import QtQuick
 import QtQuick.Layouts
-import Holonight as Hn
+import Holonight.Controls
 import Holonight.Core
 
-Hn.ComboBox {
+HnIconComboBox {
     id: root
 
     required property string iconText
 
+    iconRole: ""
     delegateHeight: height
     font.pointSize: 13.5
     hoverEnabled: true

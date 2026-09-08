@@ -1,6 +1,14 @@
 version: "3"
 vars:
-  QML_IMPORT_DIR: /usr/lib/qt6/qml
+  BUILD_DIR: build
+  HOLONIGHT_QT_PREFIX: '{{.TASKFILE_DIR}}/{{.BUILD_DIR}}/dependencies/prefix'
+  HOLONIGHT_QT_DIR: '{{.HOLONIGHT_QT_PREFIX}}/lib/cmake/HolonightQt'
+  HOLONIGHT_CONFIG_DIR: '{{.HOLONIGHT_QT_PREFIX}}/lib/cmake/HoloNightConfig'
+  HOLONIGHT_QT_SOURCE: '{{default "../holonight-qt" .HOLONIGHT_QT_SOURCE}}'
+  HOLONIGHT_QT_REVISION: 00e6e208b6c9b30d89b66ef3aeb4ef8175050764
+  HOLONIGHT_CONFIG_SOURCE: '{{default "../holonight-config" .HOLONIGHT_CONFIG_SOURCE}}'
+  HOLONIGHT_CONFIG_REVISION: fe69a59e6b73167fd5349223a4d265d75386c139
+  NPROC: 4
   SYSTEM_BUILD_DIR: build-system
   LIVE_ROOT: /tmp/holonight-greeter-live
 tasks:
@@ -8,11 +16,30 @@ tasks:
     desc: Validate REUSE licensing metadata
     cmds: [reuse lint]
 
+  build:config-dependency:
+    desc: Build and stage the pinned configuration dependency
+    cmds:
+      - test "$(git -C {{.HOLONIGHT_CONFIG_SOURCE}} rev-parse HEAD)" = "{{.HOLONIGHT_CONFIG_REVISION}}"
+      - cmake -S {{.HOLONIGHT_CONFIG_SOURCE}} -B {{.BUILD_DIR}}/dependencies/config -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+      - cmake --build {{.BUILD_DIR}}/dependencies/config -j{{.NPROC}}
+      - cmake --install {{.BUILD_DIR}}/dependencies/config --prefix {{.HOLONIGHT_QT_PREFIX}}
+
+  build:qt-dependency:
+    desc: Build and stage the pinned provider without tests or examples
+    deps: [build:config-dependency]
+    cmds:
+      - test "$(git -C {{.HOLONIGHT_QT_SOURCE}} rev-parse HEAD)" = "{{.HOLONIGHT_QT_REVISION}}"
+      - cmake -S {{.HOLONIGHT_QT_SOURCE}} -B {{.BUILD_DIR}}/dependencies/qt -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH={{.HOLONIGHT_QT_PREFIX}} -DHoloNightConfig_DIR={{.HOLONIGHT_CONFIG_DIR}} -DBUILD_TESTS=OFF -DBUILD_DEMO=OFF -DBUILD_CONTROLS_GALLERY=OFF -DBUILD_WAYLAND=ON
+      - cmake --build {{.BUILD_DIR}}/dependencies/qt -j{{.NPROC}}
+      - cmake --install {{.BUILD_DIR}}/dependencies/qt --prefix {{.HOLONIGHT_QT_PREFIX}}
+
   configure:
-    cmds: [cmake -S . -B build -G Ninja -DBUILD_TESTING=ON]
+    deps: [build:qt-dependency]
+    cmds:
+      - cmake -S . -B {{.BUILD_DIR}} -G Ninja -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_PREFIX_PATH={{.HOLONIGHT_QT_PREFIX}} -DHolonightQt_DIR={{.HOLONIGHT_QT_DIR}} -DHoloNightConfig_DIR={{.HOLONIGHT_CONFIG_DIR}}
   build:
     deps: [configure]
-    cmds: [cmake --build build]
+    cmds: ["cmake --build {{.BUILD_DIR}} -j{{.NPROC}}"]
   "configure:system":
     cmds:
       - cmake -S . -B {{.SYSTEM_BUILD_DIR}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr
@@ -48,10 +75,18 @@ tasks:
       - bash scripts/run-live-test.sh
   test:
     deps: [build]
-    cmds: [ctest --test-dir build --output-on-failure]
+    cmds: ["ctest --test-dir {{.BUILD_DIR}} --output-on-failure"]
   lint:
     deps: [build]
     cmds:
-      - cmake --build build --target format-check
-      - qmllint --bare -I {{.QML_IMPORT_DIR}} -I /usr/lib/qt6/qml qml/Main.qml qml/LoginPanel.qml qml/Background.qml
+      - cmake --build {{.BUILD_DIR}} --target format-check
+      - cmake --build {{.BUILD_DIR}} --target qml-lint
       - git diff --check
+  tidy:
+    deps: [build]
+    cmds:
+      - python3 scripts/check-static.py {{.BUILD_DIR}}
+  runtime-launches:
+    deps: [build]
+    cmds:
+      - python3 scripts/check-runtime-launches.py {{.BUILD_DIR}}/holonight-greeter {{.HOLONIGHT_QT_PREFIX}} --logs {{.BUILD_DIR}}/launch-build
