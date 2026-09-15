@@ -189,18 +189,19 @@ Controls.ApplicationWindow {
                 symbol: "↻"
                 description: greeterController.canReboot ? qsTr("Reboot") : qsTr("Reboot unavailable")
                 enabled: greeterController.canReboot
-                tabTarget: powerAction.focusTarget
-                backtabTarget: loginPanel.footerFocusTarget
+                tabTarget: loginPanel.nextFocus(focusTarget, 1)
+                backtabTarget: loginPanel.nextFocus(focusTarget, -1)
                 onClicked: root.requestPowerAction("reboot", focusTarget)
             }
             SystemActionButton {
                 id: powerAction
                 objectName: "powerButton"
                 symbol: "⏻"
+                glyphScale: 1.25
                 description: greeterController.canPowerOff ? qsTr("Shut down") : qsTr("Shutdown unavailable")
                 enabled: greeterController.canPowerOff
-                tabTarget: loginPanel.passwordFocusTarget
-                backtabTarget: rebootAction.focusTarget
+                tabTarget: loginPanel.nextFocus(focusTarget, 1)
+                backtabTarget: loginPanel.nextFocus(focusTarget, -1)
                 onClicked: root.requestPowerAction("poweroff", focusTarget)
             }
         }
@@ -265,6 +266,7 @@ Controls.ApplicationWindow {
         id: actionFrame
         required property string symbol
         required property string description
+        property real glyphScale: 1
         property Item tabTarget
         property Item backtabTarget
         readonly property alias focusTarget: action
@@ -282,12 +284,12 @@ Controls.ApplicationWindow {
                 readonly property real cornerRadius: 2 * root.referenceScale
                 fillColor: !action.enabled ? HoloniightPalette.surfaceRaised
                            : action.down ? HoloniightPalette.surfaceElevated
-                           : action.hovered ? HoloniightPalette.surfaceHover
-                                            : HoloniightPalette.surface
-                strokeColor: action.visualFocus ? HoloniightPalette.borderFocus
-                             : action.down || action.hovered ? HoloniightPalette.borderActive
+                           : action.HnInputInteraction.hoverAllowed && action.hovered ? HoloniightPalette.surfaceHover
+                                            : "transparent"
+                strokeColor: action.enabled && action.visualFocus ? HoloniightPalette.borderFocus
+                             : action.enabled && (action.down || (action.HnInputInteraction.hoverAllowed && action.hovered)) ? HoloniightPalette.borderActive
                                                             : HoloniightPalette.borderPassive
-                strokeWidth: action.visualFocus ? 2 : 1
+                strokeWidth: action.enabled && action.visualFocus ? 2 : 1
                 joinStyle: ShapePath.RoundJoin
                 startX: chamfer
                 startY: 0
@@ -313,7 +315,7 @@ Controls.ApplicationWindow {
             anchors.fill: parent
             enabled: actionFrame.enabled
             text: actionFrame.symbol
-            font.pointSize: 23.25 * root.referenceScale
+            font.pointSize: 23.25 * root.referenceScale * actionFrame.glyphScale
             Accessible.name: actionFrame.description
             Controls.ToolTip.visible: hovered
             Controls.ToolTip.text: actionFrame.description

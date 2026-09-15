@@ -12,9 +12,17 @@ Item {
     property bool capsLockOn: false
     property Item firstSystemAction
     property Item lastSystemAction
-    readonly property alias passwordFocusTarget: response
-    readonly property Item footerFocusTarget: keyboardSelector.enabled
-                                               ? keyboardSelector : sessionSelector
+    function nextFocus(current, direction) {
+        const cycle = [userSelector, username, response, reveal, primary,
+                       sessionSelector, keyboardSelector, firstSystemAction, lastSystemAction]
+        const start = cycle.indexOf(current)
+        for (let step = 1; step <= cycle.length; ++step) {
+            const candidate = cycle[(start + direction * step + cycle.length) % cycle.length]
+            if (candidate && candidate.visible && candidate.enabled)
+                return candidate
+        }
+        return null
+    }
     readonly property var currentUser: userSelector.currentIndex >= 0
                                        ? greeterController.users[userSelector.currentIndex]
                                        : null
@@ -82,12 +90,16 @@ Item {
             fallbackSource: Qt.resolvedUrl("images/no-avatar.png")
         }
 
-        Controls.ComboBox {
+        HnIconComboBox {
             id: userSelector
             objectName: "userSelector"
             Layout.topMargin: 16
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 250
+            Layout.preferredHeight: 48
+            visible: !greeterController.manualMode
+            iconRole: ""
+            delegateHeight: 56
             model: greeterController.users
             textRole: "displayName"
             valueRole: "username"
@@ -95,16 +107,44 @@ Item {
             font.pointSize: 22.5
             contentItem: Controls.Label {
                 text: userSelector.displayText
-                color: "#f3f5fc"
+                color: userSelector.enabled ? HoloniightPalette.textPrimary : HoloniightPalette.textDisabled
+                elide: Text.ElideRight
                 font: userSelector.font
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
             }
-            indicator: Item {}
-            background: Item {}
+            delegate: Controls.ItemDelegate {
+                id: accountRow
+                required property int index
+                readonly property string avatarPath: userSelector.roleValue(index, "avatar") || ""
+                objectName: "accountRow" + index
+                width: userSelector.popup.availableWidth
+                height: userSelector.delegateHeight
+                text: userSelector.textAt(index)
+                highlighted: userSelector.highlightedIndex === index
+                hoverEnabled: HnInputInteraction.hoverAllowed
+                palette: userSelector.palette
+                contentItem: RowLayout {
+                    spacing: 10
+                    HnAvatar {
+                        objectName: "accountAvatar"
+                        size: 40
+                        Layout.preferredWidth: 40
+                        Layout.preferredHeight: 40
+                        source: accountRow.avatarPath ? "file:" + accountRow.avatarPath : ""
+                        fallbackSource: Qt.resolvedUrl("images/no-avatar.png")
+                    }
+                    Controls.Label {
+                        Layout.fillWidth: true
+                        text: accountRow.text
+                        elide: Text.ElideRight
+                        color: accountRow.palette.buttonText
+                    }
+                }
+            }
             onActivated: greeterController.begin(currentValue)
-            KeyNavigation.tab: response.visible ? response : primary
-            KeyNavigation.backtab: panel.lastSystemAction
+            KeyNavigation.tab: panel.nextFocus(userSelector, 1)
+            KeyNavigation.backtab: panel.nextFocus(userSelector, -1)
         }
 
         Controls.TextField {
@@ -116,7 +156,8 @@ Item {
             placeholderText: "Username"
             enabled: greeterConfigError.length === 0 && greeterController.state === "user-selection"
             onAccepted: greeterController.begin(text)
-            KeyNavigation.tab: primary
+            KeyNavigation.tab: panel.nextFocus(username, 1)
+            KeyNavigation.backtab: panel.nextFocus(username, -1)
         }
 
         Controls.Label {
@@ -149,18 +190,14 @@ Item {
                 leftPadding: 54
                 rightPadding: greeterController.secret ? 54 : 14
                 font.pointSize: 14.25
-                echoMode: greeterController.secret && !reveal.pressed
+                echoMode: greeterController.secret && !reveal.held
                           ? TextInput.Password : TextInput.Normal
                 onAccepted: {
                     greeterController.respond(text)
                     text = ""
                 }
                 Keys.onPressed: function(event) {
-                    if (event.key === Qt.Key_Backtab) {
-                        if (panel.lastSystemAction)
-                            panel.lastSystemAction.forceActiveFocus(Qt.BacktabFocusReason)
-                        event.accepted = true
-                    } else if (event.key === Qt.Key_CapsLock) {
+                    if (event.key === Qt.Key_CapsLock) {
                         panel.capsLockOn = !panel.capsLockOn
                     }
                 }
@@ -171,8 +208,8 @@ Item {
                     else
                         Qt.callLater(panel.focusPassword)
                 }
-                KeyNavigation.tab: reveal.visible ? reveal : primary
-                KeyNavigation.backtab: panel.lastSystemAction
+                KeyNavigation.tab: panel.nextFocus(response, 1)
+                KeyNavigation.backtab: panel.nextFocus(response, -1)
                 KeyNavigation.priority: KeyNavigation.BeforeItem
             }
             Controls.Label {
@@ -192,7 +229,38 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 width: 44
                 height: 44
-                text: pressed ? "◉" : "◎"
+                property bool held: false
+                text: held ? "◉" : "◎"
+                onPressed: held = true
+                onReleased: held = false
+                onCanceled: held = false
+                onActiveFocusChanged: if (!activeFocus) held = false
+                onVisibleChanged: if (!visible) held = false
+                onEnabledChanged: if (!enabled) held = false
+                Keys.priority: Keys.BeforeItem
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Space) {
+                        if (!event.isAutoRepeat)
+                            held = true
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        event.accepted = true
+                    }
+                }
+                Keys.onReleased: function(event) {
+                    if (event.key === Qt.Key_Space) {
+                        if (!event.isAutoRepeat)
+                            held = false
+                        event.accepted = true
+                    }
+                }
+                Connections {
+                    target: reveal.Window.window
+                    function onActiveChanged() {
+                        if (!reveal.Window.window.active)
+                            reveal.held = false
+                    }
+                }
                 Accessible.name: "Hold to reveal password"
                 background: Rectangle {
                     readonly property real semanticRadius:
@@ -200,14 +268,14 @@ Item {
                                                    width, height,
                                                    HnAppearance.revision)
                     radius: semanticRadius
-                    color: reveal.down ? HoloniightPalette.surfaceElevated
-                                       : reveal.hovered ? HoloniightPalette.surfaceHover
+                    color: reveal.enabled && reveal.held ? HoloniightPalette.surfaceElevated
+                                       : reveal.enabled && reveal.HnInputInteraction.hoverAllowed && reveal.hovered ? HoloniightPalette.surfaceHover
                                                         : "transparent"
-                    border.width: reveal.visualFocus ? HnMetrics.focusBorderWidth : 0
+                    border.width: reveal.enabled && reveal.visualFocus ? HnMetrics.focusBorderWidth : 0
                     border.color: HoloniightPalette.borderFocus
                 }
-                KeyNavigation.tab: primary
-                KeyNavigation.backtab: response
+                KeyNavigation.tab: panel.nextFocus(reveal, 1)
+                KeyNavigation.backtab: panel.nextFocus(reveal, -1)
             }
         }
 
@@ -265,8 +333,8 @@ Item {
                     greeterController.begin(panel.selectedUser)
                 }
             }
-            KeyNavigation.tab: sessionSelector
-            KeyNavigation.backtab: reveal.visible ? reveal : response
+            KeyNavigation.tab: panel.nextFocus(primary, 1)
+            KeyNavigation.backtab: panel.nextFocus(primary, -1)
         }
 
         Rectangle {
@@ -308,9 +376,8 @@ Item {
                         greeterController.selectedSession = currentValue
                         panel.focusPassword()
                     }
-                    KeyNavigation.tab: keyboardSelector.enabled
-                                       ? keyboardSelector : panel.firstSystemAction
-                    KeyNavigation.backtab: primary
+                    KeyNavigation.tab: panel.nextFocus(sessionSelector, 1)
+                    KeyNavigation.backtab: panel.nextFocus(sessionSelector, -1)
                 }
             }
 
@@ -347,8 +414,8 @@ Item {
                         syncSelection()
                         panel.focusPassword()
                     }
-                    KeyNavigation.tab: panel.firstSystemAction
-                    KeyNavigation.backtab: sessionSelector
+                    KeyNavigation.tab: panel.nextFocus(keyboardSelector, 1)
+                    KeyNavigation.backtab: panel.nextFocus(keyboardSelector, -1)
 
                     Connections {
                         target: greeterCompositor

@@ -21,14 +21,14 @@ HnIconComboBox {
 
         Text {
             text: root.iconText
-            color: "#88a9d0"
+            color: root.enabled ? HoloniightPalette.textSecondary : HoloniightPalette.textDisabled
             font.pointSize: root.iconText === "⌨" ? 16.5 : 20.25
             Layout.alignment: Qt.AlignVCenter
         }
 
         Text {
             text: root.displayText
-            color: root.enabled ? "#dce6f5" : "#6884aa"
+            color: root.enabled ? HoloniightPalette.textPrimary : HoloniightPalette.textDisabled
             font: root.font
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
@@ -41,7 +41,7 @@ HnIconComboBox {
         x: root.width - width - 14
         anchors.verticalCenter: parent.verticalCenter
         text: "⌄"
-        color: root.enabled ? "#88a9d0" : "#526b8e"
+        color: root.enabled ? HoloniightPalette.textSecondary : HoloniightPalette.textDisabled
         font: root.font
     }
 
@@ -52,10 +52,10 @@ HnIconComboBox {
                                        HnAppearance.revision)
 
         radius: semanticRadius
-        color: root.down ? HoloniightPalette.surfaceElevated
-                         : root.hovered ? HoloniightPalette.surfaceHover
+        color: root.enabled && root.down ? HoloniightPalette.surfaceElevated
+                         : root.enabled && root.HnInputInteraction.hoverAllowed && root.hovered ? HoloniightPalette.surfaceHover
                                         : "transparent"
-        border.width: root.visualFocus || root.popup.visible
+        border.width: root.enabled && (root.visualFocus || root.popup.visible)
                       ? HnMetrics.focusBorderWidth : 0
         border.color: HoloniightPalette.borderFocus
     }

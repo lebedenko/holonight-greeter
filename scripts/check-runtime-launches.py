@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bounded, isolated demo greeter startup under all supported selectors."""
 import argparse
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -24,6 +25,7 @@ def main():
     parser.add_argument("executable", type=Path)
     parser.add_argument("prefix", type=Path)
     parser.add_argument("--forbid-path", type=Path)
+    parser.add_argument("--scale", choices=("1", "1.25"), default="1")
     parser.add_argument("--logs", type=Path, required=True)
     args = parser.parse_args()
     args.logs.mkdir(parents=True, exist_ok=True)
@@ -33,6 +35,7 @@ def main():
             root = Path(directory)
             env = dict(PATH="", LANG="C.UTF-8", HOME=str(root),
                        QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
+                       QT_SCALE_FACTOR=args.scale,
                        QT_QPA_PLATFORMTHEME="", QML_IMPORT_TRACE="1", QT_DEBUG_PLUGINS="1",
                        QT_FORCE_STDERR_LOGGING="1",
                        QT_LOGGING_RULES="qt.qml.import.debug=true;qt.core.plugin.loader.debug=true",
@@ -77,6 +80,10 @@ def main():
                     (args.logs / f"{mode}.maps").write_text(maps)
                 finally:
                     stop(process)
+                    (args.logs / f"{mode}.outcome.json").write_text(json.dumps(dict(
+                        pid=process.pid, returncode=process.returncode,
+                        outcome="terminated by verification", requested_scale=args.scale,
+                        style=expected)) + "\n")
             evidence = log_path.read_text()
             assert "qml-loaded" in evidence, f"{mode}: no root loading evidence"
             assert re.search(rf"/{expected}/(?:Button|ComboBox)\.qml", evidence), f"{mode}: no implementation evidence"

@@ -9,6 +9,7 @@
 #include <QQmlContext>
 #include <QQmlExpression>
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -32,12 +33,14 @@ bool hasOrigin(QObject *object, const QString &suffix) {
 
 class RuntimeControls : public testing::Test {
 protected:
-  void load(bool manual = false, const QString &error = {}) {
+  void load(bool manual = false, const QString &error = {},
+            bool multiple = true) {
     config.userMode = manual ? Greeter::Config::UserMode::Manual
                              : Greeter::Config::UserMode::List;
     config.keyboardLayouts = {{"us", "us", {}, "English"},
                               {"de", "de", {}, "German"}};
-    accounts.records += {"bob", "Bob", {}, 1001};
+    if (multiple)
+      accounts.records += {"bob", "Bob", {}, 1001};
     for (int i = 0; i < 25; ++i)
       files.records += {QString("session-%1").arg(i),
                         QString("Session %1").arg(i),
@@ -77,6 +80,28 @@ protected:
     EXPECT_NE(result, nullptr) << name;
     return result;
   }
+  QQuickItem *focusItem(const char *name) {
+    auto *item = qobject_cast<QQuickItem *>(object(name));
+    if (QString::fromLatin1(name).endsWith("Button") &&
+        (QString::fromLatin1(name) == "rebootButton" ||
+         QString::fromLatin1(name) == "powerButton"))
+      return evaluate(item, "focusTarget").value<QQuickItem *>();
+    return item;
+  }
+  void checkCycle(const QStringList &names) {
+    auto *first = focusItem(qPrintable(names.first()));
+    ASSERT_NE(first, nullptr);
+    first->forceActiveFocus(Qt::TabFocusReason);
+    for (int direction : {1, -1}) {
+      for (int step = 1; step <= names.size(); ++step) {
+        QTest::keyClick(window, direction == 1 ? Qt::Key_Tab : Qt::Key_Backtab);
+        const auto name =
+            names[(direction * step + names.size()) % names.size()];
+        EXPECT_EQ(window->activeFocusItem(), focusItem(qPrintable(name)))
+            << qPrintable(name) << " direction " << direction;
+      }
+    }
+  }
   QVariant evaluate(QObject *target, const QString &expression) {
     QQmlExpression expr(qmlContext(target), target, expression);
     auto result = expr.evaluate();
@@ -108,6 +133,249 @@ protected:
   std::unique_ptr<QQmlApplicationEngine> engine;
   QQuickWindow *window = nullptr;
 };
+
+TEST_F(RuntimeControls, KeyboardRevealHoldReleaseAndFocusLoss) {
+  load();
+  transport.connectNow();
+  prompt();
+  auto *response = object("responseField");
+  auto *reveal = qobject_cast<QQuickItem *>(object("revealButton"));
+  response->setProperty("text", "disposable reveal sample");
+  const auto sent = transport.sent.size();
+  reveal->forceActiveFocus(Qt::TabFocusReason);
+  QTest::keyPress(window, Qt::Key_Space);
+  EXPECT_EQ(response->property("echoMode").toInt(), 0);
+  QKeyEvent repeatRelease(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier,
+                          QString{}, true);
+  QCoreApplication::sendEvent(window, &repeatRelease);
+  EXPECT_EQ(response->property("echoMode").toInt(), 0);
+  QTest::keyRelease(window, Qt::Key_Space);
+  EXPECT_EQ(response->property("echoMode").toInt(), 2);
+  QTest::keyPress(window, Qt::Key_Space);
+  EXPECT_EQ(response->property("echoMode").toInt(), 0);
+  qobject_cast<QQuickItem *>(response)->forceActiveFocus(Qt::TabFocusReason);
+  EXPECT_EQ(response->property("echoMode").toInt(), 2);
+  QTest::keyRelease(window, Qt::Key_Space);
+  EXPECT_EQ(transport.sent.size(), sent);
+}
+
+TEST_F(RuntimeControls, KeyboardCycleIncludesAccountBothDirections) {
+  load();
+  transport.connectNow();
+  prompt();
+  power.capabilitiesNow(true, true);
+  QCoreApplication::processEvents();
+  auto *response = qobject_cast<QQuickItem *>(object("responseField"));
+  response->forceActiveFocus(Qt::TabFocusReason);
+  QTest::keyClick(window, Qt::Key_Backtab);
+  EXPECT_EQ(window->activeFocusItem(), object("userSelector"));
+  QTest::keyClick(window, Qt::Key_Tab);
+  EXPECT_EQ(window->activeFocusItem(), response);
+}
+
+TEST_F(RuntimeControls, CompleteCycleSkipsCompactAndDisabledActions) {
+  load();
+  transport.connectNow();
+  prompt();
+  power.capabilitiesNow(true, true);
+  QCoreApplication::processEvents();
+  const QStringList inputs{"userSelector",    "responseField",
+                           "revealButton",    "primaryButton",
+                           "sessionSelector", "keyboardSelector"};
+  checkCycle(inputs + QStringList{"rebootButton", "powerButton"});
+  window->resize(850, 941);
+  QCoreApplication::processEvents();
+  checkCycle(inputs);
+  window->resize(1672, 941);
+  power.capabilitiesNow(false, true);
+  QCoreApplication::processEvents();
+  checkCycle(inputs + QStringList{"rebootButton"});
+  object("keyboardSelector")->setProperty("enabled", false);
+  power.capabilitiesNow(false, false);
+  QCoreApplication::processEvents();
+  checkCycle(inputs.sliced(0, 5));
+}
+
+TEST_F(RuntimeControls, SingleAccountAndManualCycles) {
+  load(false, {}, false);
+  transport.connectNow();
+  prompt();
+  checkCycle({"responseField", "revealButton", "primaryButton",
+              "sessionSelector", "keyboardSelector"});
+}
+
+TEST_F(RuntimeControls, ManualUsernameCycleAndPromptFocus) {
+  load(true);
+  checkCycle({"usernameField", "sessionSelector", "keyboardSelector"});
+  object("usernameField")->setProperty("text", "alice");
+  checkCycle({"usernameField", "primaryButton", "sessionSelector",
+              "keyboardSelector"});
+  QMetaObject::invokeMethod(object("usernameField"), "accepted");
+  transport.connectNow();
+  prompt();
+  ASSERT_TRUE(QTest::qWaitFor(
+      [&] { return window->activeFocusItem() == object("responseField"); }));
+  checkCycle({"responseField", "revealButton", "primaryButton",
+              "sessionSelector", "keyboardSelector"});
+}
+
+TEST_F(RuntimeControls, RevealCancellationHidingDisablingAndDeactivation) {
+  load();
+  transport.connectNow();
+  prompt();
+  auto *response = object("responseField");
+  auto *reveal = focusItem("revealButton");
+  const auto sent = transport.sent.size();
+  for (const auto &cancel : {QString("canceled()"), QString("enabled = false"),
+                             QString("visible = false")}) {
+    reveal->setProperty("enabled", true);
+    reveal->setProperty("visible", true);
+    reveal->forceActiveFocus(Qt::TabFocusReason);
+    QTest::keyPress(window, Qt::Key_Space);
+    ASSERT_EQ(response->property("echoMode").toInt(), 0);
+    evaluate(reveal, cancel);
+    EXPECT_EQ(response->property("echoMode").toInt(), 2);
+    QTest::keyRelease(window, Qt::Key_Space);
+  }
+  reveal->setProperty("visible", true);
+  reveal->forceActiveFocus(Qt::TabFocusReason);
+  QTest::keyPress(window, Qt::Key_Space);
+  QWindow other;
+  other.show();
+  other.requestActivate();
+  ASSERT_TRUE(QTest::qWaitFor([&] { return !window->isActive(); }));
+  EXPECT_EQ(response->property("echoMode").toInt(), 2);
+  QTest::keyRelease(window, Qt::Key_Space);
+  other.hide();
+  window->requestActivate();
+  ASSERT_TRUE(QTest::qWaitFor([&] { return window->isActive(); }));
+  reveal->forceActiveFocus(Qt::TabFocusReason);
+  QTest::keyClick(window, Qt::Key_Return);
+  EXPECT_EQ(transport.sent.size(), sent);
+  // Mouse events are delivered directly to the isolated offscreen test window.
+  const auto point =
+      reveal->mapToScene(QPointF(reveal->width() / 2, reveal->height() / 2))
+          .toPoint();
+  QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point);
+  EXPECT_EQ(response->property("echoMode").toInt(), 0);
+  QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
+  EXPECT_EQ(response->property("echoMode").toInt(), 2);
+  EXPECT_EQ(transport.sent.size(), sent);
+}
+
+TEST_F(RuntimeControls, AccountRowsFallbackLongNamesAndSelectionFocus) {
+  accounts.records[0].displayName = QString(160, 'A');
+  load();
+  transport.connectNow();
+  prompt();
+  auto *selector = object("userSelector");
+  EXPECT_TRUE(hasOrigin(selector, "/Holonight/Controls/HnIconComboBox.qml"));
+  EXPECT_EQ(object("userAvatar")->property("width").toDouble(), 132);
+  EXPECT_GT(evaluate(selector, "indicator.width").toDouble(), 0);
+  evaluate(selector, "popup.open()");
+  ASSERT_TRUE(QTest::qWaitFor(
+      [&] { return evaluate(selector, "popup.opened").toBool(); }));
+  auto *row =
+      evaluate(selector, "popup.contentItem.currentItem").value<QObject *>();
+  ASSERT_NE(row, nullptr);
+  EXPECT_TRUE(
+      hasOrigin(row, qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion"
+                         ? "/Fusion/ItemDelegate.qml"
+                         : "/Holonight/ItemDelegate.qml"));
+  EXPECT_TRUE(evaluate(row, "contentItem.children[1].truncated").toBool());
+  EXPECT_TRUE(evaluate(row, "contentItem.children[0].fallbackSource.toString()."
+                            "endsWith('no-avatar.png')")
+                  .toBool());
+  EXPECT_LE(row->property("width").toDouble(),
+            selector->property("width").toDouble());
+  evaluate(selector, "popup.close()");
+  activate("userSelector", 1);
+  transport.reply({{"type", "success"}});
+  transport.connectNow();
+  EXPECT_EQ(transport.sent.last().value("username"), "bob");
+  prompt();
+  ASSERT_TRUE(QTest::qWaitFor(
+      [&] { return window->activeFocusItem() == object("responseField"); }));
+  activate("sessionSelector", 1);
+  EXPECT_EQ(window->activeFocusItem(), object("responseField"));
+}
+
+TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
+  load();
+  auto *footer = object("keyboardSelector");
+  footer->setProperty("enabled", false);
+  evaluate(footer, "down = true");
+  EXPECT_EQ(evaluate(footer, "background.color").value<QColor>().alpha(), 0);
+  EXPECT_EQ(evaluate(footer, "background.border.width").toInt(), 0);
+  EXPECT_EQ(evaluate(footer, "contentItem.children[0].color"),
+            evaluate(footer, "contentItem.children[1].color"));
+  EXPECT_EQ(evaluate(footer, "indicator.color"),
+            evaluate(footer, "contentItem.children[1].color"));
+  power.capabilitiesNow(true, true);
+  auto *reboot = object("rebootButton");
+  auto *poweroff = object("powerButton");
+  EXPECT_EQ(reboot->property("width"), poweroff->property("width"));
+  EXPECT_NEAR(evaluate(poweroff, "focusTarget.font.pointSize").toDouble() /
+                  evaluate(reboot, "focusTarget.font.pointSize").toDouble(),
+              1.25, 0.01);
+  for (auto *action : {reboot, poweroff}) {
+    EXPECT_EQ(evaluate(action, "children[0].data[0].fillColor")
+                  .value<QColor>()
+                  .alpha(),
+              0);
+    EXPECT_GT(evaluate(action, "children[0].data[0].strokeWidth").toDouble(),
+              0);
+  }
+  EXPECT_EQ(power.offs, 0);
+  EXPECT_EQ(power.reboots, 0);
+}
+
+TEST_F(RuntimeControls, PasswordInheritsSelectedStyleAndRendersStates) {
+  load();
+  transport.connectNow();
+  prompt();
+  auto *response = focusItem("responseField");
+  const bool fusion =
+      qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion";
+  EXPECT_TRUE(hasOrigin(response, fusion ? "/Fusion/TextField.qml"
+                                         : "/Holonight/TextField.qml"));
+  for (bool enabled : {true, false}) {
+    response->setEnabled(enabled);
+    for (bool focused : {false, true}) {
+      if (focused && enabled)
+        response->forceActiveFocus(Qt::TabFocusReason);
+      else
+        focusItem("sessionSelector")->forceActiveFocus(Qt::TabFocusReason);
+      QCoreApplication::processEvents();
+      EXPECT_EQ(evaluate(response, "color").value<QColor>(),
+                evaluate(response,
+                         fusion
+                             ? "palette.text"
+                             : (enabled ? "controlColors.colors.textPrimary"
+                                        : "controlColors.colors.textDisabled"))
+                    .value<QColor>());
+      EXPECT_EQ(evaluate(response, "selectionColor").value<QColor>(),
+                evaluate(response, fusion ? "palette.highlight"
+                                          : "controlColors.colors.selection")
+                    .value<QColor>());
+      ASSERT_TRUE(QTest::qWaitFor(
+          [&] { return response->width() > 0 && response->height() > 0; }));
+      const auto grab = response->grabToImage();
+      ASSERT_FALSE(grab.isNull());
+      QSignalSpy ready(grab.data(), &QQuickItemGrabResult::ready);
+      ASSERT_TRUE(ready.wait());
+      const auto image = grab->image();
+      ASSERT_FALSE(image.isNull());
+      const QColor pixel =
+          image.pixelColor(image.width() / 3, image.height() / 2);
+      EXPECT_GT(pixel.alpha(), 0);
+      qInfo() << "PASSWORD_RENDER" << (fusion ? "Fusion" : "Holonight") << "dpr"
+              << window->devicePixelRatio() << "enabled" << enabled << "focus"
+              << response->hasActiveFocus() << "pixel" << pixel << "text"
+              << evaluate(response, "color").value<QColor>();
+    }
+  }
+}
 
 TEST_F(RuntimeControls, SelectedImplementationsAndCompositePainting) {
   load();
