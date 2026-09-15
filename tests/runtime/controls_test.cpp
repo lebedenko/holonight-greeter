@@ -123,7 +123,7 @@ protected:
                      {"auth_message", message}});
     QCoreApplication::processEvents();
   }
-  void checkPasswordCaret(bool recordedOnly);
+  void checkPasswordCaret(bool recordedOnly, bool candidate = false);
   QTemporaryDir temporary;
   Greeter::Config config;
   FakeTransport transport;
@@ -357,12 +357,22 @@ TEST_F(RuntimeControls, DISABLED_PasswordCaretRecordedGeometry) {
   checkPasswordCaret(true);
 }
 
-void RuntimeControls::checkPasswordCaret(bool recordedOnly) {
+// UQC-218: rejected for text softening. Pixel visibility is necessary but
+// not sufficient for acceptance; retain this experiment outside ordinary CI.
+TEST_F(RuntimeControls, DISABLED_PasswordCaretLayerCandidate) {
+  checkPasswordCaret(true, true);
+}
+
+void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
   SteadyCaret steady;
   load();
   transport.connectNow();
   prompt();
   auto *response = focusItem("responseField");
+  if (candidate) {
+    evaluate(response, "layer.enabled = true");
+    evaluate(response, "layer.smooth = true");
+  }
   ASSERT_TRUE(QTest::qWaitFor(
       [&] { return response->hasActiveFocus() && response->width() > 0; }));
   ASSERT_NEAR(window->devicePixelRatio(),
@@ -490,6 +500,48 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly) {
     response->forceActiveFocus(Qt::TabFocusReason);
     EXPECT_EQ(response->property("echoMode").toInt(), 2);
     check(response, "refocused-remasked");
+
+    if (candidate) {
+      // Exercise scrolling and cursor navigation using disposable input only.
+      response->setProperty("text", QString(80, QLatin1Char('x')));
+      QTest::keyClick(window, Qt::Key_End);
+      check(response, "long-masked-end");
+      QTest::keyClick(window, Qt::Key_Home);
+      EXPECT_EQ(response->property("cursorPosition").toInt(), 0);
+      check(response, "long-masked-home");
+      QTest::keyClick(window, Qt::Key_Right);
+      EXPECT_EQ(response->property("cursorPosition").toInt(), 1);
+      check(response, "long-masked-right");
+      response->setProperty("echoMode", 0);
+      check(response, "long-revealed");
+      evaluate(response, "layer.enabled = false");
+      check(response, "long-revealed-direct", false);
+      evaluate(response, "layer.enabled = true");
+      response->setProperty("echoMode", 2);
+      check(response, "long-remasked");
+      response->setProperty("text", QString{});
+      check(response, "long-cleared");
+      const auto position = response->position();
+      const double panelScale = window->property("panelScale").toDouble();
+      response->setTransformOrigin(QQuickItem::TopLeft);
+      for (double scale : {0.78, 1.0, 1.25}) {
+        response->setScale(scale / panelScale);
+        for (int quarter = 0; quarter <= 4; ++quarter) {
+          const double shift = quarter / (4.0 * window->devicePixelRatio());
+          response->setPosition(
+              position + QPointF(shift / panelScale, shift / panelScale));
+          const auto mapped = response->mapRectToScene(
+              response->property("cursorRectangle").toRectF());
+          ASSERT_NEAR(mapped.width(), scale, 0.001);
+          const auto phase =
+              QString("sweep-%1-%2").arg(scale).arg(quarter).toLatin1();
+          check(response, phase.constData());
+        }
+      }
+      response->setScale(1);
+      response->setPosition(position);
+      continue;
+    }
 
     // Minimal selected-style field at the same scene position/scale, with no
     // greeter ancestors. Change font, padding and transform independently.

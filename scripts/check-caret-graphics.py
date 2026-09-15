@@ -13,8 +13,11 @@ def main():
     parser.add_argument('binary', type=Path)
     parser.add_argument('prefix', type=Path)
     parser.add_argument('--logs', type=Path, required=True)
-    parser.add_argument('--exact-geometry', action='store_true',
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--exact-geometry', action='store_true',
                         help='Run the retained UQC-217 failing reproduction')
+    mode.add_argument('--layer-candidate', action='store_true',
+                      help='Run the rejected UQC-218 experiment; not repair acceptance')
     args = parser.parse_args()
     args.logs.mkdir(parents=True, exist_ok=True)
     prefix = args.prefix.resolve()
@@ -55,7 +58,8 @@ def main():
                             result = subprocess.run(
                                 ['python3', str(runner), str(args.binary.resolve()),
                                  '--gtest_filter=RuntimeControls.' +
-                                 ('DISABLED_PasswordCaretRecordedGeometry'
+                                 ('DISABLED_PasswordCaretLayerCandidate' if args.layer_candidate else
+                                  'DISABLED_PasswordCaretRecordedGeometry'
                                   if args.exact_geometry else 'PasswordCaretPixels'),
                                  '--gtest_also_run_disabled_tests'],
                                 env=dict(env, QT_QUICK_CONTROLS_STYLE=style,
