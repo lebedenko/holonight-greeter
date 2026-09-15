@@ -123,6 +123,7 @@ protected:
                      {"auth_message", message}});
     QCoreApplication::processEvents();
   }
+  void checkPasswordCaret(bool recordedOnly);
   QTemporaryDir temporary;
   Greeter::Config config;
   FakeTransport transport;
@@ -347,7 +348,16 @@ private:
   int previous;
 };
 
-TEST_F(RuntimeControls, PasswordCaretPixels) {
+TEST_F(RuntimeControls, PasswordCaretPixels) { checkPasswordCaret(false); }
+
+// UQC-217: retained failing shared-renderer reproduction, explicitly opt in
+// until an upstream repair is available. Do not weaken the visibility
+// assertion.
+TEST_F(RuntimeControls, DISABLED_PasswordCaretRecordedGeometry) {
+  checkPasswordCaret(true);
+}
+
+void RuntimeControls::checkPasswordCaret(bool recordedOnly) {
   SteadyCaret steady;
   load();
   transport.connectNow();
@@ -355,7 +365,7 @@ TEST_F(RuntimeControls, PasswordCaretPixels) {
   auto *response = focusItem("responseField");
   ASSERT_TRUE(QTest::qWaitFor(
       [&] { return response->hasActiveFocus() && response->width() > 0; }));
-  EXPECT_NEAR(window->devicePixelRatio(),
+  ASSERT_NEAR(window->devicePixelRatio(),
               qEnvironmentVariable("QT_SCALE_FACTOR").toDouble(), 0.01);
   qInfo() << "CARET_BACKEND" << window->rendererInterface()->graphicsApi();
   if (qEnvironmentVariableIsSet("GREETER_CARET_GRAPHICS")) {
@@ -370,6 +380,9 @@ TEST_F(RuntimeControls, PasswordCaretPixels) {
     QCoreApplication::processEvents();
     return window->grabWindow();
   };
+  // Complete the initial Wayland configure before requesting case dimensions.
+  ASSERT_TRUE(QTest::qWaitForWindowExposed(window));
+  ASSERT_FALSE(capture().isNull());
   int captureIndex = 0;
   auto check = [&](QQuickItem *field, const char *phase,
                    bool acceptance = true) {
@@ -398,6 +411,13 @@ TEST_F(RuntimeControls, PasswordCaretPixels) {
                            QString::fromLatin1(phase);
       ASSERT_TRUE(on.save(base + "-on.png"));
       ASSERT_TRUE(off.save(base + "-off.png"));
+      QImage difference(on.size(), QImage::Format_RGB32);
+      difference.fill(Qt::black);
+      for (int y = 0; y < on.height(); ++y)
+        for (int x = 0; x < on.width(); ++x)
+          if (on.pixel(x, y) != off.pixel(x, y))
+            difference.setPixelColor(x, y, Qt::white);
+      ASSERT_TRUE(difference.save(base + "-diff.png"));
     }
     int changed = 0;
     const auto bounded = region.intersected(on.rect());
@@ -428,10 +448,29 @@ TEST_F(RuntimeControls, PasswordCaretPixels) {
       EXPECT_EQ(changed, 0);
     }
   };
-  for (const QSize size :
-       {QSize(1672, 941), QSize(2560, 1600), QSize(850, 700)}) {
+  const bool fractional = window->devicePixelRatio() > 1;
+  const QSize recorded = fractional ? QSize(1021, 1257) : QSize(1276, 1571);
+  const QList<QSize> sizes =
+      recordedOnly
+          ? QList<QSize>{recorded}
+          : QList<QSize>{QSize(1672, 941), QSize(2560, 1600), QSize(850, 700)};
+  for (const QSize size : sizes) {
     window->resize(size);
     QCoreApplication::processEvents();
+    ASSERT_TRUE(QTest::qWaitFor([&] { return window->size() == size; }))
+        << "actual " << window->width() << "x" << window->height();
+    if (size == recorded) {
+      ASSERT_DOUBLE_EQ(window->property("panelScale").toDouble(), 0.78);
+      ASSERT_EQ(response->size(), QSizeF(420, 57));
+      const auto cursor = response->property("cursorRectangle").toRectF();
+      ASSERT_EQ(cursor, QRectF(54, 17, 1, 23));
+      const auto mapped = response->mapRectToScene(cursor);
+      ASSERT_NEAR(mapped.x(), fractional ? 543.136 : 771.616, 0.001);
+      ASSERT_NEAR(mapped.y(), fractional ? 633.026 : 789.111, 0.001);
+      ASSERT_NEAR(mapped.width(), 0.78, 0.001);
+      ASSERT_NEAR(mapped.height(), 17.94, 0.001);
+      qInfo() << "RECORDED_GEOMETRY" << window->size() << mapped;
+    }
     if (!response->hasActiveFocus())
       response->forceActiveFocus(Qt::TabFocusReason);
     check(response, "empty");
@@ -483,10 +522,37 @@ TEST_F(RuntimeControls, PasswordCaretPixels) {
     reference->setProperty("leftPadding", defaultPadding);
     check(reference, "minimal-default-left-padding");
     reference->setProperty("leftPadding", response->property("leftPadding"));
+    reference->setPosition(QPointF(qRound(position.x()), qRound(position.y())));
+    check(reference, "minimal-rounded-position", false);
+    reference->setPosition(position);
     reference->setScale(1);
     // This diagnostic variant has a retained software/DPR-1.25 failure
     // outside production composition; it is not the reported scale-1 G07.
     check(reference, "minimal-unscaled", false);
+    if (recordedOnly) {
+      // Remove Controls entirely to locate the ownership boundary in QtQuick.
+      QQmlComponent plainComponent(engine.get());
+      plainComponent.setData(
+          "import QtQuick\nTextInput { echoMode: TextInput.Password }",
+          QUrl("file:///caret-qtquick-reference.qml"));
+      std::unique_ptr<QObject> plainOwner(plainComponent.create());
+      auto *plain = qobject_cast<QQuickItem *>(plainOwner.get());
+      ASSERT_NE(plain, nullptr) << qPrintable(plainComponent.errorString());
+      plain->setParentItem(window->contentItem());
+      plain->setSize(response->size());
+      plain->setTransformOrigin(QQuickItem::TopLeft);
+      plain->setPosition(position);
+      plain->setScale(scale);
+      plain->setZ(101);
+      for (const char *name :
+           {"font", "color", "leftPadding", "rightPadding", "topPadding",
+            "bottomPadding", "verticalAlignment"})
+        ASSERT_TRUE(plain->setProperty(name, response->property(name)));
+      plain->forceActiveFocus(Qt::TabFocusReason);
+      ASSERT_EQ(plain->property("cursorRectangle"),
+                response->property("cursorRectangle"));
+      check(plain, "plain-qtquick-equivalent");
+    }
   }
 }
 

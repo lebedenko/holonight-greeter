@@ -13,6 +13,8 @@ def main():
     parser.add_argument('binary', type=Path)
     parser.add_argument('prefix', type=Path)
     parser.add_argument('--logs', type=Path, required=True)
+    parser.add_argument('--exact-geometry', action='store_true',
+                        help='Run the retained UQC-217 failing reproduction')
     args = parser.parse_args()
     args.logs.mkdir(parents=True, exist_ok=True)
     prefix = args.prefix.resolve()
@@ -20,7 +22,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix='greeter-caret-') as directory:
         root = Path(directory)
         config = root / 'sway.conf'
-        config.write_text('output HEADLESS-1 mode 2560x1600 scale 1\n')
+        # Keep compositor tiling from asynchronously replacing test dimensions.
+        config.write_text('output HEADLESS-1 mode 2560x1600 scale 1\n'
+                          'for_window [app_id=".*"] floating enable\n')
         env = dict(PATH=os.defpath, LANG='C.UTF-8', HOME=str(root),
                    XDG_RUNTIME_DIR=str(root), WLR_BACKENDS='headless',
                    WLR_RENDERER='pixman', WLR_LIBINPUT_NO_DEVICES='1')
@@ -50,7 +54,10 @@ def main():
                         with (args.logs / (case + '.log')).open('w') as output:
                             result = subprocess.run(
                                 ['python3', str(runner), str(args.binary.resolve()),
-                                 '--gtest_filter=RuntimeControls.PasswordCaretPixels'],
+                                 '--gtest_filter=RuntimeControls.' +
+                                 ('DISABLED_PasswordCaretRecordedGeometry'
+                                  if args.exact_geometry else 'PasswordCaretPixels'),
+                                 '--gtest_also_run_disabled_tests'],
                                 env=dict(env, QT_QUICK_CONTROLS_STYLE=style,
                                          QT_SCALE_FACTOR=scale,
                                          GREETER_CARET_ARTIFACTS=str((args.logs / case).resolve())), stdout=output,
