@@ -90,3 +90,8 @@ tasks:
     deps: [build]
     cmds:
       - python3 scripts/check-runtime-launches.py {{.BUILD_DIR}}/holonight-greeter {{.HOLONIGHT_QT_PREFIX}} --logs {{.BUILD_DIR}}/launch-build
+  caret-graphics:
+    desc: Compare caret pixels on isolated headless Sway with the staged theme
+    deps: [build]
+    cmds:
+      - python3 scripts/check-caret-graphics.py {{.BUILD_DIR}}/greeter_runtime_tests {{.HOLONIGHT_QT_PREFIX}} --logs {{.BUILD_DIR}}/caret-graphics

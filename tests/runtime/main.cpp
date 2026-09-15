@@ -20,9 +20,11 @@ int main(int argc, char **argv) {
     qputenv(name, path.toUtf8());
   }
   qputenv("XDG_RUNTIME_DIR", isolation.path().toUtf8());
-  qputenv("QT_QUICK_BACKEND", "software");
+  if (!qEnvironmentVariableIsSet("GREETER_CARET_GRAPHICS"))
+    qputenv("QT_QUICK_BACKEND", "software");
   qputenv("QT_FORCE_STDERR_LOGGING", "1");
-  qputenv("QT_QPA_PLATFORMTHEME", "");
+  if (!qEnvironmentVariableIsSet("GREETER_CARET_GRAPHICS"))
+    qputenv("QT_QPA_PLATFORMTHEME", "");
   qunsetenv("QT_STYLE_OVERRIDE");
   qunsetenv("QT_QUICK_CONTROLS_CONF");
   qunsetenv("HOLONIGHT_APPEARANCE_FILE");

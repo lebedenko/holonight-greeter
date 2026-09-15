@@ -11,7 +11,9 @@
 #include <QQuickItem>
 #include <QQuickItemGrabResult>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSignalSpy>
+#include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QtQml/private/qqmlcontextdata_p.h>
@@ -328,6 +330,164 @@ TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
   }
   EXPECT_EQ(power.offs, 0);
   EXPECT_EQ(power.reboots, 0);
+}
+
+// Blink changes are confined to this test and restored even on assertion
+// failure.
+class SteadyCaret {
+public:
+  SteadyCaret() : previous(QGuiApplication::styleHints()->cursorFlashTime()) {
+    QGuiApplication::styleHints()->setCursorFlashTime(0);
+  }
+  ~SteadyCaret() {
+    QGuiApplication::styleHints()->setCursorFlashTime(previous);
+  }
+
+private:
+  int previous;
+};
+
+TEST_F(RuntimeControls, PasswordCaretPixels) {
+  SteadyCaret steady;
+  load();
+  transport.connectNow();
+  prompt();
+  auto *response = focusItem("responseField");
+  ASSERT_TRUE(QTest::qWaitFor(
+      [&] { return response->hasActiveFocus() && response->width() > 0; }));
+  EXPECT_NEAR(window->devicePixelRatio(),
+              qEnvironmentVariable("QT_SCALE_FACTOR").toDouble(), 0.01);
+  qInfo() << "CARET_BACKEND" << window->rendererInterface()->graphicsApi();
+  if (qEnvironmentVariableIsSet("GREETER_CARET_GRAPHICS")) {
+    EXPECT_EQ(window->rendererInterface()->graphicsApi(),
+              QSGRendererInterface::OpenGL);
+    QFile maps("/proc/self/maps");
+    ASSERT_TRUE(maps.open(QIODevice::ReadOnly));
+    EXPECT_TRUE(maps.readAll().contains("/platformthemes/libqholonight.so"));
+  }
+  auto capture = [&] {
+    window->update();
+    QCoreApplication::processEvents();
+    return window->grabWindow();
+  };
+  int captureIndex = 0;
+  auto check = [&](QQuickItem *field, const char *phase,
+                   bool acceptance = true) {
+    SCOPED_TRACE(phase);
+    QCoreApplication::processEvents();
+    const auto on = capture();
+    const auto cursor = field->property("cursorRectangle").toRectF();
+    const auto mapped = field->mapRectToScene(cursor);
+    const double dpr = window->devicePixelRatio();
+    const QRect region = QRectF(mapped.x() * dpr, mapped.y() * dpr,
+                                mapped.width() * dpr, mapped.height() * dpr)
+                             .adjusted(-2, -2, 2, 2)
+                             .toAlignedRect();
+    QCoreApplication::processEvents();
+    const bool visible = field->property("cursorVisible").toBool();
+    field->setProperty("cursorVisible", false);
+    const auto off = capture();
+    field->setProperty("cursorVisible", visible);
+    ASSERT_FALSE(on.isNull());
+    ASSERT_EQ(on.size(), off.size());
+    const QString artifacts = qEnvironmentVariable("GREETER_CARET_ARTIFACTS");
+    if (!artifacts.isEmpty()) {
+      ASSERT_TRUE(QDir{}.mkpath(artifacts));
+      const QString base = artifacts + QLatin1Char('/') +
+                           QString::number(captureIndex++) + QLatin1Char('-') +
+                           QString::fromLatin1(phase);
+      ASSERT_TRUE(on.save(base + "-on.png"));
+      ASSERT_TRUE(off.save(base + "-off.png"));
+    }
+    int changed = 0;
+    const auto bounded = region.intersected(on.rect());
+    for (int y = bounded.top(); y <= bounded.bottom(); ++y)
+      for (int x = bounded.left(); x <= bounded.right(); ++x)
+        if (on.pixel(x, y) != off.pixel(x, y))
+          ++changed;
+    qInfo() << "CARET_PIXELS" << phase << "focus" << field->hasActiveFocus()
+            << "visible" << visible << "size" << field->size() << "font"
+            << field->property("font") << "padding"
+            << field->property("leftPadding") << field->property("rightPadding")
+            << field->property("topPadding") << field->property("bottomPadding")
+            << "cursor" << cursor << "mapped" << mapped << "dpr" << dpr
+            << "pixels" << changed;
+    for (auto *ancestor = field; ancestor; ancestor = ancestor->parentItem())
+      qInfo() << "CARET_ANCESTOR" << ancestor->objectName() << "scale"
+              << ancestor->scale() << "clip" << ancestor->clip() << "bounds"
+              << ancestor->mapRectToScene(ancestor->boundingRect())
+              << "clipRect" << ancestor->mapRectToScene(ancestor->clipRect())
+              << "itemRect"
+              << ancestor->mapRectToScene(QRectF({}, ancestor->size()));
+    if (field->hasActiveFocus()) {
+      EXPECT_TRUE(visible);
+      if (acceptance)
+        EXPECT_GT(changed, 0);
+    } else {
+      EXPECT_FALSE(visible);
+      EXPECT_EQ(changed, 0);
+    }
+  };
+  for (const QSize size :
+       {QSize(1672, 941), QSize(2560, 1600), QSize(850, 700)}) {
+    window->resize(size);
+    QCoreApplication::processEvents();
+    if (!response->hasActiveFocus())
+      response->forceActiveFocus(Qt::TabFocusReason);
+    check(response, "empty");
+    QTest::keyClick(window, Qt::Key_X);
+    EXPECT_EQ(response->property("length").toInt(), 1);
+    EXPECT_NE(response->property("displayText"), response->property("text"));
+    check(response, "populated");
+    QTest::keyClick(window, Qt::Key_Backspace);
+    EXPECT_EQ(response->property("length").toInt(), 0);
+    check(response, "cleared");
+    focusItem("revealButton")->forceActiveFocus(Qt::TabFocusReason);
+    check(response, "unfocused");
+    QTest::keyPress(window, Qt::Key_Space);
+    EXPECT_EQ(response->property("echoMode").toInt(), 0);
+    check(response, "revealed-unfocused");
+    QTest::keyRelease(window, Qt::Key_Space);
+    response->forceActiveFocus(Qt::TabFocusReason);
+    EXPECT_EQ(response->property("echoMode").toInt(), 2);
+    check(response, "refocused-remasked");
+
+    // Minimal selected-style field at the same scene position/scale, with no
+    // greeter ancestors. Change font, padding and transform independently.
+    QQmlComponent component(engine.get());
+    component.setData("import QtQuick\nimport QtQuick.Controls as Controls\n"
+                      "Controls.TextField { echoMode: TextInput.Password }",
+                      QUrl("file:///caret-reference.qml"));
+    std::unique_ptr<QObject> referenceOwner(component.create());
+    auto *reference = qobject_cast<QQuickItem *>(referenceOwner.get());
+    ASSERT_NE(reference, nullptr) << qPrintable(component.errorString());
+    reference->setParentItem(window->contentItem());
+    reference->setSize(response->size());
+    reference->setTransformOrigin(QQuickItem::TopLeft);
+    const auto position = response->mapToScene(QPointF{});
+    const auto unit = response->mapToScene(QPointF(1, 0));
+    const double scale = unit.x() - position.x();
+    reference->setPosition(position);
+    reference->setScale(scale);
+    reference->setZ(100);
+    const auto defaultFont = reference->property("font");
+    const auto defaultPadding = reference->property("leftPadding");
+    for (const char *name :
+         {"font", "leftPadding", "rightPadding", "topPadding", "bottomPadding"})
+      reference->setProperty(name, response->property(name));
+    reference->forceActiveFocus(Qt::TabFocusReason);
+    check(reference, "minimal-equivalent");
+    reference->setProperty("font", defaultFont);
+    check(reference, "minimal-default-font");
+    reference->setProperty("font", response->property("font"));
+    reference->setProperty("leftPadding", defaultPadding);
+    check(reference, "minimal-default-left-padding");
+    reference->setProperty("leftPadding", response->property("leftPadding"));
+    reference->setScale(1);
+    // This diagnostic variant has a retained software/DPR-1.25 failure
+    // outside production composition; it is not the reported scale-1 G07.
+    check(reference, "minimal-unscaled", false);
+  }
 }
 
 TEST_F(RuntimeControls, PasswordInheritsSelectedStyleAndRendersStates) {

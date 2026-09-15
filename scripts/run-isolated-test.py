@@ -14,9 +14,16 @@ with tempfile.TemporaryDirectory(prefix="greeter-tests-") as directory:
                DBUS_SESSION_BUS_ADDRESS=f"unix:path={root}/no-session-bus",
                DBUS_SYSTEM_BUS_ADDRESS=f"unix:path={root}/no-system-bus",
                GREETD_SOCK=str(root / "no-greetd"))
-    for name in ("QT_QUICK_CONTROLS_STYLE", "QT_SCALE_FACTOR", "LD_LIBRARY_PATH"):
+    for name in ("QT_QUICK_CONTROLS_STYLE", "QT_SCALE_FACTOR", "LD_LIBRARY_PATH", "GREETER_CARET_ARTIFACTS"):
         if name in os.environ:
             env[name] = os.environ[name]
+    if os.environ.get("GREETER_CARET_GRAPHICS") == "1":
+        env["QT_QUICK_BACKEND"] = "rhi"
+        env.update(GREETER_CARET_GRAPHICS="1", QT_QPA_PLATFORMTHEME="holonight",
+                   QSG_RHI_BACKEND="opengl", QSG_INFO="1")
+        for name in ("QT_PLUGIN_PATH", "DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY", "QT_QPA_PLATFORM"):
+            if name in os.environ:
+                env[name] = os.environ[name]
     for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR",
                  "XDG_CONFIG_DIRS", "XDG_DATA_DIRS", "XDG_STATE_HOME"):
         path = root / name
