@@ -381,10 +381,9 @@ void Controller::handle(const QJsonObject &message) {
   if (type == "success" && stage_ == Stage::Starting) {
     QString error;
     if (!files_->save(statePath_, activeUser_, selectedSession_, manualMode(),
-                      &error))
-      return fail(
-          QStringLiteral("Session started but state could not be saved: %1")
-              .arg(error));
+                      &error)) {
+      qCWarning(greeterController) << "Could not save greeter state:" << error;
+    }
     stage_ = Stage::Complete;
     transport_->disconnectFromServer();
     setState("authenticated");
