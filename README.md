@@ -27,7 +27,7 @@ fullscreen greeter surface to its intended Wayland output.
 ## Build and test
 
 Task builds the pinned configuration and Qt provider revisions from sibling checkouts
-into `build/dependencies/prefix`, without a system installation:
+into `build/deps/prefix`, without a system installation:
 
 ```sh
 task build
@@ -43,8 +43,8 @@ For already installed dependencies, direct CMake configuration remains supported
 
 ```sh
 cmake -S . -B build -G Ninja -DBUILD_TESTING=ON -DCMAKE_PREFIX_PATH=/path/to/prefix
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake --build build/debug
+ctest --test-dir build/test --output-on-failure
 ```
 
 Application QML uses `QtQuick.Controls as Controls`. Each graphical executable
@@ -58,11 +58,11 @@ Run the greeter as a regular window from an existing graphical session:
 
 ```sh
 # For the privately staged Task build:
-export LD_LIBRARY_PATH="$PWD/build/dependencies/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-./build/holonight-greeter --demo
-./build/holonight-greeter --demo-scenario wrong-password
-./build/holonight-greeter --demo-scenario otp
-./build/holonight-greeter --demo-scenario fingerprint
+export LD_LIBRARY_PATH="$PWD/build/deps/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+./build/debug/holonight-greeter --demo
+./build/debug/holonight-greeter --demo-scenario wrong-password
+./build/debug/holonight-greeter --demo-scenario otp
+./build/debug/holonight-greeter --demo-scenario fingerprint
 ```
 
 Supported scenarios are `default`, `wrong-password`, `otp`, and `fingerprint`; specifying a scenario implies
@@ -128,3 +128,8 @@ the production login path.
 ## License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
+
+## Standalone developer tooling
+
+See [tooling/README.md](tooling/README.md) for presets, local dependency overrides, editor refresh,
+`task tooling:doctor`, and the independent Serena project.

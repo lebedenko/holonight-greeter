@@ -11,6 +11,7 @@ install(FILES LICENSE ASSET_PROVENANCE.md LICENSES/GPL-3.0-or-later.txt
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/${PROJECT_NAME}")
 
 option(BUILD_TESTING "Build tests" ON)
+include("${CMAKE_CURRENT_SOURCE_DIR}/tooling/dependencies.cmake")
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml Network DBus)
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)
