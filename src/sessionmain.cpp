@@ -1,5 +1,6 @@
 #include "config.h"
 #include "sessionlauncher.h"
+
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
@@ -9,19 +10,19 @@
 #include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+
 #include <ranges>
 
 Q_LOGGING_CATEGORY(sessionLog, "holonight.greeter.session")
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
   QCoreApplication app(argc, argv);
   QCoreApplication::setApplicationName("holonight-greeter-session");
   QCoreApplication::setApplicationVersion("0.1.0");
   QCommandLineParser parser;
   parser.addHelpOption();
   parser.addVersionOption();
-  parser.addOption({"config", "Greeter configuration", "path",
-                    "/etc/holonight/greeter.toml"});
+  parser.addOption({"config", "Greeter configuration", "path", "/etc/holonight/greeter.toml"});
   parser.addOption({"backend", "Built-in backend override", "name"});
   parser.process(app);
 
@@ -35,9 +36,7 @@ int main(int argc, char **argv) {
     qCCritical(sessionLog) << "configuration-error";
     return 2;
   }
-  const QString backend = parser.isSet("backend")
-                              ? parser.value("backend")
-                              : loaded.value.compositorBackend;
+  const QString backend = parser.isSet("backend") ? parser.value("backend") : loaded.value.compositor_backend;
   if (!QStringList{"hyprland", "cage"}.contains(backend)) {
     qCCritical(sessionLog) << "backend-unsupported";
     return 2;
@@ -64,8 +63,7 @@ int main(int argc, char **argv) {
     const QString path = runtime.filePath("hyprland.lua");
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly) ||
-        file.write(Greeter::hyprlandConfig(loaded.value, greeter, configPath)
-                       .toUtf8()) < 0) {
+        file.write(Greeter::hyprlandConfig(loaded.value, greeter, configPath).toUtf8()) < 0) {
       qCCritical(sessionLog) << "backend-config-error";
       return 3;
     }
@@ -78,22 +76,20 @@ int main(int argc, char **argv) {
     const auto command = Greeter::cageCommand(greeter, configPath);
     program = command.program;
     arguments = command.arguments;
-    if (!loaded.value.keyboardLayouts.isEmpty()) {
-      auto layout = loaded.value.keyboardLayouts.cbegin();
-      const auto configured = std::ranges::find(loaded.value.keyboardLayouts,
-                                                loaded.value.keyboardDefault,
-                                                &Greeter::KeyboardLayout::id);
-      if (configured != loaded.value.keyboardLayouts.cend())
+    if (!loaded.value.keyboard_layouts.isEmpty()) {
+      auto layout = loaded.value.keyboard_layouts.cbegin();
+      const auto configured =
+          std::ranges::find(loaded.value.keyboard_layouts, loaded.value.keyboard_default, &Greeter::KeyboardLayout::id);
+      if (configured != loaded.value.keyboard_layouts.cend()) {
         layout = configured;
+      }
       environment.insert("XKB_DEFAULT_LAYOUT", layout->layout);
       environment.insert("XKB_DEFAULT_VARIANT", layout->variant);
-      environment.insert("XKB_DEFAULT_OPTIONS", loaded.value.keyboardOptions);
+      environment.insert("XKB_DEFAULT_OPTIONS", loaded.value.keyboard_options);
       process.setProcessEnvironment(environment);
     }
   }
-  qCInfo(sessionLog) << "launcher-start"
-                     << QCoreApplication::applicationVersion() << "backend"
-                     << backend;
+  qCInfo(sessionLog) << "launcher-start" << QCoreApplication::applicationVersion() << "backend" << backend;
   process.start(program, arguments);
   if (!process.waitForStarted(5000)) {
     qCCritical(sessionLog) << "backend-start-error" << backend;
@@ -102,6 +98,5 @@ int main(int argc, char **argv) {
   qCInfo(sessionLog) << "backend-ready" << backend;
   process.waitForFinished(-1);
   qCInfo(sessionLog) << "backend-exit" << backend << process.exitCode();
-  return process.exitStatus() == QProcess::NormalExit ? process.exitCode()
-                                                      : 128;
+  return process.exitStatus() == QProcess::NormalExit ? process.exitCode() : 128;
 }

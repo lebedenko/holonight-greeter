@@ -1,6 +1,7 @@
 #include "compositoradapter.h"
 #include "controller.h"
 #include "fakes.h"
+
 #include <QDir>
 #include <QFile>
 #include <QImage>
@@ -18,12 +19,13 @@
 #include <QTest>
 #include <QtQml/private/qqmlcontextdata_p.h>
 #include <QtQml/private/qqmldata_p.h>
+
 #include <gtest/gtest.h>
 
 namespace {
-bool hasOrigin(QObject *object, const QString &suffix) {
-  auto *data = QQmlData::get(object);
-  for (auto *context = data ? data->context : nullptr; context;
+bool hasOrigin(QObject* object, const QString& suffix) {
+  auto* data = QQmlData::get(object);
+  for (auto* context = (data != nullptr) ? data->context : nullptr; context != nullptr;
        context = context->parent().data()) {
     if (context->url().toString().endsWith(suffix)) {
       qInfo().noquote() << "CONTROL_IMPLEMENTATION" << context->url();
@@ -34,31 +36,34 @@ bool hasOrigin(QObject *object, const QString &suffix) {
 }
 
 class RuntimeControls : public testing::Test {
-protected:
-  void load(bool manual = false, const QString &error = {},
-            bool multiple = true) {
-    config.userMode = manual ? Greeter::Config::UserMode::Manual
-                             : Greeter::Config::UserMode::List;
-    config.keyboardLayouts = {{"us", "us", {}, "English"},
-                              {"de", "de", {}, "German"}};
-    if (multiple)
-      accounts.records += {"bob", "Bob", {}, 1001};
-    for (int i = 0; i < 25; ++i)
-      files.records += {QString("session-%1").arg(i),
-                        QString("Session %1").arg(i),
-                        {"fake-session"}};
-    controller = std::make_unique<Greeter::Controller>(
-        false, QString{}, config, temporary.filePath("state.json"), &transport,
-        &accounts, &power, &files);
+ protected:
+  void load(bool manual = false, const QString& error = {}, bool multiple = true) {
+    config.user_mode = manual ? Greeter::Config::UserMode::Manual : Greeter::Config::UserMode::List;
+    config.keyboard_layouts = {
+        {.id = "us", .layout = "us", .variant = {}, .label = "English"},
+        {.id = "de", .layout = "de", .variant = {}, .label = "German"},
+    };
+    if (multiple) {
+      accounts.records += {.username = "bob", .display_name = "Bob", .avatar = {}, .uid = 1001};
+    }
+    for (int i = 0; i < 25; ++i) {
+      files.records += {
+          .id = QString("session-%1").arg(i),
+          .name = QString("Session %1").arg(i),
+          .command = {"fake-session"},
+      };
+    }
+    controller = std::make_unique<Greeter::Controller>(false, QString{}, config, temporary.filePath("state.json"),
+                                                       &transport, &accounts, &power, &files);
     compositor = std::make_unique<Greeter::CompositorAdapter>(config);
     engine = std::make_unique<QQmlApplicationEngine>();
     engine->addImportPath(HOLONIGHT_QML_IMPORT_PATH);
-    QObject::connect(engine.get(), &QQmlEngine::warnings, engine.get(),
-                     [this](const QList<QQmlError> &errors) {
-                       for (const auto &entry : errors)
-                         diagnostics += entry.toString();
-                     });
-    auto *context = engine->rootContext();
+    QObject::connect(engine.get(), &QQmlEngine::warnings, engine.get(), [this](const QList<QQmlError>& errors) {
+      for (const auto& entry : errors) {
+        diagnostics += entry.toString();
+      }
+    });
+    auto* context = engine->rootContext();
     context->setContextProperty("greeterController", controller.get());
     context->setContextProperty("greeterCompositor", compositor.get());
     context->setContextProperty("greeterConfigError", error);
@@ -67,9 +72,8 @@ protected:
     context->setContextProperty("greeterBackground", QString{});
     context->setContextProperty("greeterMachineName", "Acceptance");
     engine->loadFromModule("Holonight.Greeter", "Main");
-    ASSERT_EQ(engine->rootObjects().size(), 1)
-        << qPrintable(diagnostics.join('\n'));
-    window = qobject_cast<QQuickWindow *>(engine->rootObjects().first());
+    ASSERT_EQ(engine->rootObjects().size(), 1) << qPrintable(diagnostics.join('\n'));
+    window = qobject_cast<QQuickWindow*>(engine->rootObjects().first());
     ASSERT_NE(window, nullptr);
     QCoreApplication::processEvents();
   }
@@ -77,86 +81,98 @@ protected:
     engine.reset();
     EXPECT_TRUE(diagnostics.isEmpty()) << qPrintable(diagnostics.join('\n'));
   }
-  QObject *object(const char *name) {
-    auto *result = window->findChild<QObject *>(QString::fromLatin1(name));
+  QObject* object(const char* name) {
+    auto* result = window->findChild<QObject*>(QString::fromLatin1(name));
     EXPECT_NE(result, nullptr) << name;
     return result;
   }
-  QQuickItem *focusItem(const char *name) {
-    auto *item = qobject_cast<QQuickItem *>(object(name));
+  QQuickItem* focusItem(const char* name) {
+    auto* item = qobject_cast<QQuickItem*>(object(name));
     if (QString::fromLatin1(name).endsWith("Button") &&
-        (QString::fromLatin1(name) == "rebootButton" ||
-         QString::fromLatin1(name) == "powerButton"))
-      return evaluate(item, "focusTarget").value<QQuickItem *>();
+        (QString::fromLatin1(name) == "rebootButton" || QString::fromLatin1(name) == "powerButton")) {
+      return evaluate(item, "focusTarget").value<QQuickItem*>();
+    }
     return item;
   }
-  void checkCycle(const QStringList &names) {
-    auto *first = focusItem(qPrintable(names.first()));
+  void checkCycle(const QStringList& names) {
+    auto* first = focusItem(qPrintable(names.first()));
     ASSERT_NE(first, nullptr);
     first->forceActiveFocus(Qt::TabFocusReason);
     for (int direction : {1, -1}) {
       for (int step = 1; step <= names.size(); ++step) {
         QTest::keyClick(window, direction == 1 ? Qt::Key_Tab : Qt::Key_Backtab);
-        const auto name =
-            names[(direction * step + names.size()) % names.size()];
+        const auto& name = names[((direction * step) + names.size()) % names.size()];
         EXPECT_EQ(window->activeFocusItem(), focusItem(qPrintable(name)))
             << qPrintable(name) << " direction " << direction;
       }
     }
   }
-  QVariant evaluate(QObject *target, const QString &expression) {
+  static QVariant evaluate(QObject* target, const QString& expression) {
     QQmlExpression expr(qmlContext(target), target, expression);
     auto result = expr.evaluate();
     EXPECT_FALSE(expr.hasError()) << qPrintable(expr.error().toString());
     return result;
   }
-  void activate(const char *name, int index) {
-    auto *combo = object(name);
+  void activate(const char* name, int index) {
+    auto* combo = object(name);
     ASSERT_TRUE(combo->setProperty("currentIndex", index));
-    ASSERT_TRUE(
-        QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, index)));
+    ASSERT_TRUE(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, index)));
     QCoreApplication::processEvents();
   }
-  void prompt(const char *kind = "secret", const char *message = "Password") {
-    transport.reply({{"type", "auth_message"},
-                     {"auth_message_type", kind},
-                     {"auth_message", message}});
+  void prompt(const char* kind = "secret", const char* message = "Password") {
+    transport.reply({
+        {"type", "auth_message"},
+        {"auth_message_type", kind},
+        {"auth_message", message},
+    });
     QCoreApplication::processEvents();
   }
   void checkPasswordCaret(bool recordedOnly, bool candidate = false);
+  [[nodiscard]] QImage captureWindow() const;
+  void checkCaretPixels(QQuickItem* field, const char* phase, bool acceptance, int& captureIndex);
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   QTemporaryDir temporary;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   Greeter::Config config;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   FakeTransport transport;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   FakeAccounts accounts;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   FakePower power;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   FakeFiles files;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   std::unique_ptr<Greeter::Controller> controller;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   std::unique_ptr<Greeter::CompositorAdapter> compositor;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   QStringList diagnostics;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
   std::unique_ptr<QQmlApplicationEngine> engine;
-  QQuickWindow *window = nullptr;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes): TEST_F state.
+  QQuickWindow* window = nullptr;
 };
 
 TEST_F(RuntimeControls, KeyboardRevealHoldReleaseAndFocusLoss) {
   load();
   transport.connectNow();
   prompt();
-  auto *response = object("responseField");
-  auto *reveal = qobject_cast<QQuickItem *>(object("revealButton"));
+  auto* response = object("responseField");
+  auto* reveal = qobject_cast<QQuickItem*>(object("revealButton"));
   response->setProperty("text", "disposable reveal sample");
   const auto sent = transport.sent.size();
   reveal->forceActiveFocus(Qt::TabFocusReason);
   QTest::keyPress(window, Qt::Key_Space);
   EXPECT_EQ(response->property("echoMode").toInt(), 0);
-  QKeyEvent repeatRelease(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier,
-                          QString{}, true);
+  QKeyEvent repeatRelease(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier, QString{}, true);
   QCoreApplication::sendEvent(window, &repeatRelease);
   EXPECT_EQ(response->property("echoMode").toInt(), 0);
   QTest::keyRelease(window, Qt::Key_Space);
   EXPECT_EQ(response->property("echoMode").toInt(), 2);
   QTest::keyPress(window, Qt::Key_Space);
   EXPECT_EQ(response->property("echoMode").toInt(), 0);
-  qobject_cast<QQuickItem *>(response)->forceActiveFocus(Qt::TabFocusReason);
+  qobject_cast<QQuickItem*>(response)->forceActiveFocus(Qt::TabFocusReason);
   EXPECT_EQ(response->property("echoMode").toInt(), 2);
   QTest::keyRelease(window, Qt::Key_Space);
   EXPECT_EQ(transport.sent.size(), sent);
@@ -168,7 +184,7 @@ TEST_F(RuntimeControls, KeyboardCycleIncludesAccountBothDirections) {
   prompt();
   power.capabilitiesNow(true, true);
   QCoreApplication::processEvents();
-  auto *response = qobject_cast<QQuickItem *>(object("responseField"));
+  auto* response = qobject_cast<QQuickItem*>(object("responseField"));
   response->forceActiveFocus(Qt::TabFocusReason);
   QTest::keyClick(window, Qt::Key_Backtab);
   EXPECT_EQ(window->activeFocusItem(), object("userSelector"));
@@ -182,9 +198,9 @@ TEST_F(RuntimeControls, CompleteCycleSkipsCompactAndDisabledActions) {
   prompt();
   power.capabilitiesNow(true, true);
   QCoreApplication::processEvents();
-  const QStringList inputs{"userSelector",    "responseField",
-                           "revealButton",    "primaryButton",
-                           "sessionSelector", "keyboardSelector"};
+  const QStringList inputs{
+      "userSelector", "responseField", "revealButton", "primaryButton", "sessionSelector", "keyboardSelector",
+  };
   checkCycle(inputs + QStringList{"rebootButton", "powerButton"});
   window->resize(850, 941);
   QCoreApplication::processEvents();
@@ -203,34 +219,50 @@ TEST_F(RuntimeControls, SingleAccountAndManualCycles) {
   load(false, {}, false);
   transport.connectNow();
   prompt();
-  checkCycle({"responseField", "revealButton", "primaryButton",
-              "sessionSelector", "keyboardSelector"});
+  checkCycle({
+      "responseField",
+      "revealButton",
+      "primaryButton",
+      "sessionSelector",
+      "keyboardSelector",
+  });
 }
 
 TEST_F(RuntimeControls, ManualUsernameCycleAndPromptFocus) {
   load(true);
   checkCycle({"usernameField", "sessionSelector", "keyboardSelector"});
   object("usernameField")->setProperty("text", "alice");
-  checkCycle({"usernameField", "primaryButton", "sessionSelector",
-              "keyboardSelector"});
+  checkCycle({
+      "usernameField",
+      "primaryButton",
+      "sessionSelector",
+      "keyboardSelector",
+  });
   QMetaObject::invokeMethod(object("usernameField"), "accepted");
   transport.connectNow();
   prompt();
-  ASSERT_TRUE(QTest::qWaitFor(
-      [&] { return window->activeFocusItem() == object("responseField"); }));
-  checkCycle({"responseField", "revealButton", "primaryButton",
-              "sessionSelector", "keyboardSelector"});
+  ASSERT_TRUE(QTest::qWaitFor([&] { return window->activeFocusItem() == object("responseField"); }));
+  checkCycle({
+      "responseField",
+      "revealButton",
+      "primaryButton",
+      "sessionSelector",
+      "keyboardSelector",
+  });
 }
 
 TEST_F(RuntimeControls, RevealCancellationHidingDisablingAndDeactivation) {
   load();
   transport.connectNow();
   prompt();
-  auto *response = object("responseField");
-  auto *reveal = focusItem("revealButton");
+  auto* response = object("responseField");
+  auto* reveal = focusItem("revealButton");
   const auto sent = transport.sent.size();
-  for (const auto &cancel : {QString("canceled()"), QString("enabled = false"),
-                             QString("visible = false")}) {
+  for (const auto& cancel : {
+           QString("canceled()"),
+           QString("enabled = false"),
+           QString("visible = false"),
+       }) {
     reveal->setProperty("enabled", true);
     reveal->setProperty("visible", true);
     reveal->forceActiveFocus(Qt::TabFocusReason);
@@ -256,9 +288,7 @@ TEST_F(RuntimeControls, RevealCancellationHidingDisablingAndDeactivation) {
   QTest::keyClick(window, Qt::Key_Return);
   EXPECT_EQ(transport.sent.size(), sent);
   // Mouse events are delivered directly to the isolated offscreen test window.
-  const auto point =
-      reveal->mapToScene(QPointF(reveal->width() / 2, reveal->height() / 2))
-          .toPoint();
+  const auto point = reveal->mapToScene(QPointF(reveal->width() / 2, reveal->height() / 2)).toPoint();
   QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, point);
   EXPECT_EQ(response->property("echoMode").toInt(), 0);
   QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, point);
@@ -267,67 +297,57 @@ TEST_F(RuntimeControls, RevealCancellationHidingDisablingAndDeactivation) {
 }
 
 TEST_F(RuntimeControls, AccountRowsFallbackLongNamesAndSelectionFocus) {
-  accounts.records[0].displayName = QString(160, 'A');
+  accounts.records[0].display_name = QString(160, 'A');
   load();
   transport.connectNow();
   prompt();
-  auto *selector = object("userSelector");
+  auto* selector = object("userSelector");
   EXPECT_TRUE(hasOrigin(selector, "/Holonight/Controls/HnIconComboBox.qml"));
   EXPECT_EQ(object("userAvatar")->property("width").toDouble(), 132);
   EXPECT_GT(evaluate(selector, "indicator.width").toDouble(), 0);
   evaluate(selector, "popup.open()");
-  ASSERT_TRUE(QTest::qWaitFor(
-      [&] { return evaluate(selector, "popup.opened").toBool(); }));
-  auto *row =
-      evaluate(selector, "popup.contentItem.currentItem").value<QObject *>();
+  ASSERT_TRUE(QTest::qWaitFor([&] { return evaluate(selector, "popup.opened").toBool(); }));
+  auto* row = evaluate(selector, "popup.contentItem.currentItem").value<QObject*>();
   ASSERT_NE(row, nullptr);
-  EXPECT_TRUE(
-      hasOrigin(row, qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion"
-                         ? "/Fusion/ItemDelegate.qml"
-                         : "/Holonight/ItemDelegate.qml"));
+  EXPECT_TRUE(hasOrigin(row, qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion"
+                                 ? "/Fusion/ItemDelegate.qml"
+                                 : "/Holonight/ItemDelegate.qml"));
   EXPECT_TRUE(evaluate(row, "contentItem.children[1].truncated").toBool());
-  EXPECT_TRUE(evaluate(row, "contentItem.children[0].fallbackSource.toString()."
-                            "endsWith('no-avatar.png')")
+  EXPECT_TRUE(evaluate(row,
+                       "contentItem.children[0].fallbackSource.toString()."
+                       "endsWith('no-avatar.png')")
                   .toBool());
-  EXPECT_LE(row->property("width").toDouble(),
-            selector->property("width").toDouble());
+  EXPECT_LE(row->property("width").toDouble(), selector->property("width").toDouble());
   evaluate(selector, "popup.close()");
   activate("userSelector", 1);
   transport.reply({{"type", "success"}});
   transport.connectNow();
   EXPECT_EQ(transport.sent.last().value("username"), "bob");
   prompt();
-  ASSERT_TRUE(QTest::qWaitFor(
-      [&] { return window->activeFocusItem() == object("responseField"); }));
+  ASSERT_TRUE(QTest::qWaitFor([&] { return window->activeFocusItem() == object("responseField"); }));
   activate("sessionSelector", 1);
   EXPECT_EQ(window->activeFocusItem(), object("responseField"));
 }
 
 TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
   load();
-  auto *footer = object("keyboardSelector");
+  auto* footer = object("keyboardSelector");
   footer->setProperty("enabled", false);
   evaluate(footer, "down = true");
   EXPECT_EQ(evaluate(footer, "background.color").value<QColor>().alpha(), 0);
   EXPECT_EQ(evaluate(footer, "background.border.width").toInt(), 0);
-  EXPECT_EQ(evaluate(footer, "contentItem.children[0].color"),
-            evaluate(footer, "contentItem.children[1].color"));
-  EXPECT_EQ(evaluate(footer, "indicator.color"),
-            evaluate(footer, "contentItem.children[1].color"));
+  EXPECT_EQ(evaluate(footer, "contentItem.children[0].color"), evaluate(footer, "contentItem.children[1].color"));
+  EXPECT_EQ(evaluate(footer, "indicator.color"), evaluate(footer, "contentItem.children[1].color"));
   power.capabilitiesNow(true, true);
-  auto *reboot = object("rebootButton");
-  auto *poweroff = object("powerButton");
+  auto* reboot = object("rebootButton");
+  auto* poweroff = object("powerButton");
   EXPECT_EQ(reboot->property("width"), poweroff->property("width"));
   EXPECT_NEAR(evaluate(poweroff, "focusTarget.font.pointSize").toDouble() /
                   evaluate(reboot, "focusTarget.font.pointSize").toDouble(),
               1.25, 0.01);
-  for (auto *action : {reboot, poweroff}) {
-    EXPECT_EQ(evaluate(action, "children[0].data[0].fillColor")
-                  .value<QColor>()
-                  .alpha(),
-              0);
-    EXPECT_GT(evaluate(action, "children[0].data[0].strokeWidth").toDouble(),
-              0);
+  for (auto* action : {reboot, poweroff}) {
+    EXPECT_EQ(evaluate(action, "children[0].data[0].fillColor").value<QColor>().alpha(), 0);
+    EXPECT_GT(evaluate(action, "children[0].data[0].strokeWidth").toDouble(), 0);
   }
   EXPECT_EQ(power.offs, 0);
   EXPECT_EQ(power.reboots, 0);
@@ -336,15 +356,17 @@ TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
 // Blink changes are confined to this test and restored even on assertion
 // failure.
 class SteadyCaret {
-public:
+ public:
   SteadyCaret() : previous(QGuiApplication::styleHints()->cursorFlashTime()) {
     QGuiApplication::styleHints()->setCursorFlashTime(0);
   }
-  ~SteadyCaret() {
-    QGuiApplication::styleHints()->setCursorFlashTime(previous);
-  }
+  SteadyCaret(const SteadyCaret&) = delete;
+  SteadyCaret& operator=(const SteadyCaret&) = delete;
+  SteadyCaret(SteadyCaret&&) = delete;
+  SteadyCaret& operator=(SteadyCaret&&) = delete;
+  ~SteadyCaret() { QGuiApplication::styleHints()->setCursorFlashTime(previous); }
 
-private:
+ private:
   int previous;
 };
 
@@ -353,14 +375,91 @@ TEST_F(RuntimeControls, PasswordCaretPixels) { checkPasswordCaret(false); }
 // UQC-217: retained failing shared-renderer reproduction, explicitly opt in
 // until an upstream repair is available. Do not weaken the visibility
 // assertion.
-TEST_F(RuntimeControls, DISABLED_PasswordCaretRecordedGeometry) {
-  checkPasswordCaret(true);
-}
+TEST_F(RuntimeControls, DISABLED_PasswordCaretRecordedGeometry) { checkPasswordCaret(true); }
 
 // UQC-218: rejected for text softening. Pixel visibility is necessary but
 // not sufficient for acceptance; retain this experiment outside ordinary CI.
-TEST_F(RuntimeControls, DISABLED_PasswordCaretLayerCandidate) {
-  checkPasswordCaret(true, true);
+TEST_F(RuntimeControls, DISABLED_PasswordCaretLayerCandidate) { checkPasswordCaret(true, true); }
+
+QImage caretDifference(const QImage& cursor_on, const QImage& cursor_off) {
+  QImage difference(cursor_on.size(), QImage::Format_RGB32);
+  difference.fill(Qt::black);
+  for (int row = 0; row < cursor_on.height(); ++row) {
+    for (int column = 0; column < cursor_on.width(); ++column) {
+      if (cursor_on.pixel(column, row) != cursor_off.pixel(column, row)) {
+        difference.setPixelColor(column, row, Qt::white);
+      }
+    }
+  }
+  return difference;
+}
+
+int changedCaretPixels(const QImage& cursor_on, const QImage& cursor_off, const QRect& region) {
+  int changed = 0;
+  const auto bounded = region.intersected(cursor_on.rect());
+  for (int row = bounded.top(); row <= bounded.bottom(); ++row) {
+    for (int column = bounded.left(); column <= bounded.right(); ++column) {
+      if (cursor_on.pixel(column, row) != cursor_off.pixel(column, row)) {
+        ++changed;
+      }
+    }
+  }
+  return changed;
+}
+
+QImage RuntimeControls::captureWindow() const {
+  window->update();
+  QCoreApplication::processEvents();
+  return window->grabWindow();
+}
+
+void RuntimeControls::checkCaretPixels(QQuickItem* field, const char* phase, bool acceptance, int& captureIndex) {
+  SCOPED_TRACE(phase);
+  QCoreApplication::processEvents();
+  const auto cursor_on = captureWindow();
+  const auto cursor = field->property("cursorRectangle").toRectF();
+  const auto mapped = field->mapRectToScene(cursor);
+  const double dpr = window->devicePixelRatio();
+  const QRect region = QRectF(mapped.x() * dpr, mapped.y() * dpr, mapped.width() * dpr, mapped.height() * dpr)
+                           .adjusted(-2, -2, 2, 2)
+                           .toAlignedRect();
+  QCoreApplication::processEvents();
+  const bool visible = field->property("cursorVisible").toBool();
+  field->setProperty("cursorVisible", false);
+  const auto cursor_off = captureWindow();
+  field->setProperty("cursorVisible", visible);
+  ASSERT_FALSE(cursor_on.isNull());
+  ASSERT_EQ(cursor_on.size(), cursor_off.size());
+  const QString artifacts = qEnvironmentVariable("GREETER_CARET_ARTIFACTS");
+  if (!artifacts.isEmpty()) {
+    ASSERT_TRUE(QDir{}.mkpath(artifacts));
+    const QString base =
+        artifacts + QLatin1Char('/') + QString::number(captureIndex++) + QLatin1Char('-') + QString::fromLatin1(phase);
+    ASSERT_TRUE(cursor_on.save(base + "-on.png"));
+    ASSERT_TRUE(cursor_off.save(base + "-off.png"));
+    const QImage difference = caretDifference(cursor_on, cursor_off);
+    ASSERT_TRUE(difference.save(base + "-diff.png"));
+  }
+  const int changed = changedCaretPixels(cursor_on, cursor_off, region);
+  qInfo() << "CARET_PIXELS" << phase << "focus" << field->hasActiveFocus() << "visible" << visible << "size"
+          << field->size() << "font" << field->property("font") << "padding" << field->property("leftPadding")
+          << field->property("rightPadding") << field->property("topPadding") << field->property("bottomPadding")
+          << "cursor" << cursor << "mapped" << mapped << "dpr" << dpr << "pixels" << changed;
+  for (auto* ancestor = field; ancestor != nullptr; ancestor = ancestor->parentItem()) {
+    qInfo() << "CARET_ANCESTOR" << ancestor->objectName() << "scale" << ancestor->scale() << "clip" << ancestor->clip()
+            << "bounds" << ancestor->mapRectToScene(ancestor->boundingRect()) << "clipRect"
+            << ancestor->mapRectToScene(ancestor->clipRect()) << "itemRect"
+            << ancestor->mapRectToScene(QRectF({}, ancestor->size()));
+  }
+  if (field->hasActiveFocus()) {
+    EXPECT_TRUE(visible);
+    if (acceptance) {
+      EXPECT_GT(changed, 0);
+    }
+  } else {
+    EXPECT_FALSE(visible);
+    EXPECT_EQ(changed, 0);
+  }
 }
 
 void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
@@ -368,102 +467,32 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
   load();
   transport.connectNow();
   prompt();
-  auto *response = focusItem("responseField");
+  auto* response = focusItem("responseField");
   if (candidate) {
     evaluate(response, "layer.enabled = true");
     evaluate(response, "layer.smooth = true");
   }
-  ASSERT_TRUE(QTest::qWaitFor(
-      [&] { return response->hasActiveFocus() && response->width() > 0; }));
-  ASSERT_NEAR(window->devicePixelRatio(),
-              qEnvironmentVariable("QT_SCALE_FACTOR").toDouble(), 0.01);
+  ASSERT_TRUE(QTest::qWaitFor([&] { return response->hasActiveFocus() && response->width() > 0; }));
+  ASSERT_NEAR(window->devicePixelRatio(), qEnvironmentVariable("QT_SCALE_FACTOR").toDouble(), 0.01);
   qInfo() << "CARET_BACKEND" << window->rendererInterface()->graphicsApi();
   if (qEnvironmentVariableIsSet("GREETER_CARET_GRAPHICS")) {
-    EXPECT_EQ(window->rendererInterface()->graphicsApi(),
-              QSGRendererInterface::OpenGL);
+    EXPECT_EQ(window->rendererInterface()->graphicsApi(), QSGRendererInterface::OpenGL);
     QFile maps("/proc/self/maps");
     ASSERT_TRUE(maps.open(QIODevice::ReadOnly));
     EXPECT_TRUE(maps.readAll().contains("/platformthemes/libqholonight.so"));
   }
-  auto capture = [&] {
-    window->update();
-    QCoreApplication::processEvents();
-    return window->grabWindow();
-  };
+  auto capture = [this] { return captureWindow(); };
   // Complete the initial Wayland configure before requesting case dimensions.
   ASSERT_TRUE(QTest::qWaitForWindowExposed(window));
   ASSERT_FALSE(capture().isNull());
   int captureIndex = 0;
-  auto check = [&](QQuickItem *field, const char *phase,
-                   bool acceptance = true) {
-    SCOPED_TRACE(phase);
-    QCoreApplication::processEvents();
-    const auto on = capture();
-    const auto cursor = field->property("cursorRectangle").toRectF();
-    const auto mapped = field->mapRectToScene(cursor);
-    const double dpr = window->devicePixelRatio();
-    const QRect region = QRectF(mapped.x() * dpr, mapped.y() * dpr,
-                                mapped.width() * dpr, mapped.height() * dpr)
-                             .adjusted(-2, -2, 2, 2)
-                             .toAlignedRect();
-    QCoreApplication::processEvents();
-    const bool visible = field->property("cursorVisible").toBool();
-    field->setProperty("cursorVisible", false);
-    const auto off = capture();
-    field->setProperty("cursorVisible", visible);
-    ASSERT_FALSE(on.isNull());
-    ASSERT_EQ(on.size(), off.size());
-    const QString artifacts = qEnvironmentVariable("GREETER_CARET_ARTIFACTS");
-    if (!artifacts.isEmpty()) {
-      ASSERT_TRUE(QDir{}.mkpath(artifacts));
-      const QString base = artifacts + QLatin1Char('/') +
-                           QString::number(captureIndex++) + QLatin1Char('-') +
-                           QString::fromLatin1(phase);
-      ASSERT_TRUE(on.save(base + "-on.png"));
-      ASSERT_TRUE(off.save(base + "-off.png"));
-      QImage difference(on.size(), QImage::Format_RGB32);
-      difference.fill(Qt::black);
-      for (int y = 0; y < on.height(); ++y)
-        for (int x = 0; x < on.width(); ++x)
-          if (on.pixel(x, y) != off.pixel(x, y))
-            difference.setPixelColor(x, y, Qt::white);
-      ASSERT_TRUE(difference.save(base + "-diff.png"));
-    }
-    int changed = 0;
-    const auto bounded = region.intersected(on.rect());
-    for (int y = bounded.top(); y <= bounded.bottom(); ++y)
-      for (int x = bounded.left(); x <= bounded.right(); ++x)
-        if (on.pixel(x, y) != off.pixel(x, y))
-          ++changed;
-    qInfo() << "CARET_PIXELS" << phase << "focus" << field->hasActiveFocus()
-            << "visible" << visible << "size" << field->size() << "font"
-            << field->property("font") << "padding"
-            << field->property("leftPadding") << field->property("rightPadding")
-            << field->property("topPadding") << field->property("bottomPadding")
-            << "cursor" << cursor << "mapped" << mapped << "dpr" << dpr
-            << "pixels" << changed;
-    for (auto *ancestor = field; ancestor; ancestor = ancestor->parentItem())
-      qInfo() << "CARET_ANCESTOR" << ancestor->objectName() << "scale"
-              << ancestor->scale() << "clip" << ancestor->clip() << "bounds"
-              << ancestor->mapRectToScene(ancestor->boundingRect())
-              << "clipRect" << ancestor->mapRectToScene(ancestor->clipRect())
-              << "itemRect"
-              << ancestor->mapRectToScene(QRectF({}, ancestor->size()));
-    if (field->hasActiveFocus()) {
-      EXPECT_TRUE(visible);
-      if (acceptance)
-        EXPECT_GT(changed, 0);
-    } else {
-      EXPECT_FALSE(visible);
-      EXPECT_EQ(changed, 0);
-    }
+  auto check = [&](QQuickItem* field, const char* phase, bool acceptance = true) {
+    checkCaretPixels(field, phase, acceptance, captureIndex);
   };
   const bool fractional = window->devicePixelRatio() > 1;
   const QSize recorded = fractional ? QSize(1021, 1257) : QSize(1276, 1571);
   const QList<QSize> sizes =
-      recordedOnly
-          ? QList<QSize>{recorded}
-          : QList<QSize>{QSize(1672, 941), QSize(2560, 1600), QSize(850, 700)};
+      recordedOnly ? QList<QSize>{recorded} : QList<QSize>{QSize(1672, 941), QSize(2560, 1600), QSize(850, 700)};
   for (const QSize size : sizes) {
     window->resize(size);
     QCoreApplication::processEvents();
@@ -481,8 +510,9 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
       ASSERT_NEAR(mapped.height(), 17.94, 0.001);
       qInfo() << "RECORDED_GEOMETRY" << window->size() << mapped;
     }
-    if (!response->hasActiveFocus())
+    if (!response->hasActiveFocus()) {
       response->forceActiveFocus(Qt::TabFocusReason);
+    }
     check(response, "empty");
     QTest::keyClick(window, Qt::Key_X);
     EXPECT_EQ(response->property("length").toInt(), 1);
@@ -528,13 +558,10 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
         response->setScale(scale / panelScale);
         for (int quarter = 0; quarter <= 4; ++quarter) {
           const double shift = quarter / (4.0 * window->devicePixelRatio());
-          response->setPosition(
-              position + QPointF(shift / panelScale, shift / panelScale));
-          const auto mapped = response->mapRectToScene(
-              response->property("cursorRectangle").toRectF());
+          response->setPosition(position + QPointF(shift / panelScale, shift / panelScale));
+          const auto mapped = response->mapRectToScene(response->property("cursorRectangle").toRectF());
           ASSERT_NEAR(mapped.width(), scale, 0.001);
-          const auto phase =
-              QString("sweep-%1-%2").arg(scale).arg(quarter).toLatin1();
+          const auto phase = QString("sweep-%1-%2").arg(scale).arg(quarter).toLatin1();
           check(response, phase.constData());
         }
       }
@@ -546,11 +573,12 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
     // Minimal selected-style field at the same scene position/scale, with no
     // greeter ancestors. Change font, padding and transform independently.
     QQmlComponent component(engine.get());
-    component.setData("import QtQuick\nimport QtQuick.Controls as Controls\n"
-                      "Controls.TextField { echoMode: TextInput.Password }",
-                      QUrl("file:///caret-reference.qml"));
+    component.setData(
+        "import QtQuick\nimport QtQuick.Controls as Controls\n"
+        "Controls.TextField { echoMode: TextInput.Password }",
+        QUrl("file:///caret-reference.qml"));
     std::unique_ptr<QObject> referenceOwner(component.create());
-    auto *reference = qobject_cast<QQuickItem *>(referenceOwner.get());
+    auto* reference = qobject_cast<QQuickItem*>(referenceOwner.get());
     ASSERT_NE(reference, nullptr) << qPrintable(component.errorString());
     reference->setParentItem(window->contentItem());
     reference->setSize(response->size());
@@ -563,9 +591,9 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
     reference->setZ(100);
     const auto defaultFont = reference->property("font");
     const auto defaultPadding = reference->property("leftPadding");
-    for (const char *name :
-         {"font", "leftPadding", "rightPadding", "topPadding", "bottomPadding"})
+    for (const char* name : {"font", "leftPadding", "rightPadding", "topPadding", "bottomPadding"}) {
       reference->setProperty(name, response->property(name));
+    }
     reference->forceActiveFocus(Qt::TabFocusReason);
     check(reference, "minimal-equivalent");
     reference->setProperty("font", defaultFont);
@@ -584,11 +612,10 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
     if (recordedOnly) {
       // Remove Controls entirely to locate the ownership boundary in QtQuick.
       QQmlComponent plainComponent(engine.get());
-      plainComponent.setData(
-          "import QtQuick\nTextInput { echoMode: TextInput.Password }",
-          QUrl("file:///caret-qtquick-reference.qml"));
+      plainComponent.setData("import QtQuick\nTextInput { echoMode: TextInput.Password }",
+                             QUrl("file:///caret-qtquick-reference.qml"));
       std::unique_ptr<QObject> plainOwner(plainComponent.create());
-      auto *plain = qobject_cast<QQuickItem *>(plainOwner.get());
+      auto* plain = qobject_cast<QQuickItem*>(plainOwner.get());
       ASSERT_NE(plain, nullptr) << qPrintable(plainComponent.errorString());
       plain->setParentItem(window->contentItem());
       plain->setSize(response->size());
@@ -596,13 +623,19 @@ void RuntimeControls::checkPasswordCaret(bool recordedOnly, bool candidate) {
       plain->setPosition(position);
       plain->setScale(scale);
       plain->setZ(101);
-      for (const char *name :
-           {"font", "color", "leftPadding", "rightPadding", "topPadding",
-            "bottomPadding", "verticalAlignment"})
+      for (const char* name : {
+               "font",
+               "color",
+               "leftPadding",
+               "rightPadding",
+               "topPadding",
+               "bottomPadding",
+               "verticalAlignment",
+           }) {
         ASSERT_TRUE(plain->setProperty(name, response->property(name)));
+      }
       plain->forceActiveFocus(Qt::TabFocusReason);
-      ASSERT_EQ(plain->property("cursorRectangle"),
-                response->property("cursorRectangle"));
+      ASSERT_EQ(plain->property("cursorRectangle"), response->property("cursorRectangle"));
       check(plain, "plain-qtquick-equivalent");
     }
   }
@@ -612,44 +645,36 @@ TEST_F(RuntimeControls, PasswordInheritsSelectedStyleAndRendersStates) {
   load();
   transport.connectNow();
   prompt();
-  auto *response = focusItem("responseField");
-  const bool fusion =
-      qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion";
-  EXPECT_TRUE(hasOrigin(response, fusion ? "/Fusion/TextField.qml"
-                                         : "/Holonight/TextField.qml"));
+  auto* response = focusItem("responseField");
+  const bool fusion = qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion";
+  EXPECT_TRUE(hasOrigin(response, fusion ? "/Fusion/TextField.qml" : "/Holonight/TextField.qml"));
   for (bool enabled : {true, false}) {
     response->setEnabled(enabled);
     for (bool focused : {false, true}) {
-      if (focused && enabled)
+      if (focused && enabled) {
         response->forceActiveFocus(Qt::TabFocusReason);
-      else
+      } else {
         focusItem("sessionSelector")->forceActiveFocus(Qt::TabFocusReason);
+      }
       QCoreApplication::processEvents();
       EXPECT_EQ(evaluate(response, "color").value<QColor>(),
                 evaluate(response,
-                         fusion
-                             ? "palette.text"
-                             : (enabled ? "controlColors.colors.textPrimary"
-                                        : "controlColors.colors.textDisabled"))
+                         fusion ? "palette.text"
+                                : (enabled ? "controlColors.colors.textPrimary" : "controlColors.colors.textDisabled"))
                     .value<QColor>());
       EXPECT_EQ(evaluate(response, "selectionColor").value<QColor>(),
-                evaluate(response, fusion ? "palette.highlight"
-                                          : "controlColors.colors.selection")
-                    .value<QColor>());
-      ASSERT_TRUE(QTest::qWaitFor(
-          [&] { return response->width() > 0 && response->height() > 0; }));
+                evaluate(response, fusion ? "palette.highlight" : "controlColors.colors.selection").value<QColor>());
+      ASSERT_TRUE(QTest::qWaitFor([&] { return response->width() > 0 && response->height() > 0; }));
       const auto grab = response->grabToImage();
       ASSERT_FALSE(grab.isNull());
       QSignalSpy ready(grab.data(), &QQuickItemGrabResult::ready);
       ASSERT_TRUE(ready.wait());
       const auto image = grab->image();
       ASSERT_FALSE(image.isNull());
-      const QColor pixel =
-          image.pixelColor(image.width() / 3, image.height() / 2);
+      const QColor pixel = image.pixelColor(image.width() / 3, image.height() / 2);
       EXPECT_GT(pixel.alpha(), 0);
-      qInfo() << "PASSWORD_RENDER" << (fusion ? "Fusion" : "Holonight") << "dpr"
-              << window->devicePixelRatio() << "enabled" << enabled << "focus"
-              << response->hasActiveFocus() << "pixel" << pixel << "text"
+      qInfo() << "PASSWORD_RENDER" << (fusion ? "Fusion" : "Holonight") << "dpr" << window->devicePixelRatio()
+              << "enabled" << enabled << "focus" << response->hasActiveFocus() << "pixel" << pixel << "text"
               << evaluate(response, "color").value<QColor>();
     }
   }
@@ -659,32 +684,29 @@ TEST_F(RuntimeControls, SelectedImplementationsAndCompositePainting) {
   load();
   ASSERT_NE(window, nullptr);
   const QString prefix =
-      qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion"
-          ? "/QtQuick/Controls/Fusion/"
-          : "/Holonight/";
+      qEnvironmentVariable("QT_QUICK_CONTROLS_STYLE") == "Fusion" ? "/QtQuick/Controls/Fusion/" : "/Holonight/";
   EXPECT_TRUE(hasOrigin(window, prefix + "ApplicationWindow.qml"));
   EXPECT_TRUE(hasOrigin(object("userSelector"), prefix + "ComboBox.qml"));
   EXPECT_TRUE(hasOrigin(object("responseField"), prefix + "TextField.qml"));
   EXPECT_TRUE(hasOrigin(object("primaryButton"), prefix + "Button.qml"));
-  EXPECT_TRUE(hasOrigin(object("sessionSelector"),
-                        "/Holonight/Controls/HnIconComboBox.qml"));
+  EXPECT_TRUE(hasOrigin(object("sessionSelector"), "/Holonight/Controls/HnIconComboBox.qml"));
   EXPECT_TRUE(hasOrigin(object("sessionSelector"), prefix + "ComboBox.qml"));
-  EXPECT_TRUE(
-      hasOrigin(object("userAvatar"), "/Holonight/Controls/HnAvatar.qml"));
+  EXPECT_TRUE(hasOrigin(object("userAvatar"), "/Holonight/Controls/HnAvatar.qml"));
   EXPECT_EQ(window->color(), QColor("#050b18"));
-  auto *selector = object("sessionSelector");
+  auto* selector = object("sessionSelector");
   EXPECT_EQ(selector->property("iconRole").toString(), "");
-  EXPECT_EQ(evaluate(selector, "contentItem.children[0].text").toString(),
-            QString::fromUtf8("▱"));
+  EXPECT_EQ(evaluate(selector, "contentItem.children[0].text").toString(), QString::fromUtf8("▱"));
   QFile maps("/proc/self/maps");
   ASSERT_TRUE(maps.open(QIODevice::ReadOnly));
   auto contents = maps.readAll();
   const QByteArray root = QByteArray(HOLONIGHT_QML_IMPORT_PATH) + "/Holonight/";
-  for (auto module : {"Core/libholonight_core_qml.so",
-                      "Controls/libholonight_controls_qml.so"})
+  for (const auto* module : {
+           "Core/libholonight_core_qml.so",
+           "Controls/libholonight_controls_qml.so",
+       }) {
     EXPECT_TRUE(contents.contains(root + module));
-  EXPECT_EQ(contents.contains(root + "libholonight_qml.so"),
-            prefix == "/Holonight/");
+  }
+  EXPECT_EQ(contents.contains(root + "libholonight_qml.so"), prefix == "/Holonight/");
 }
 
 TEST_F(RuntimeControls, UserSessionPasswordOtpFingerprintAndCancellation) {
@@ -693,7 +715,7 @@ TEST_F(RuntimeControls, UserSessionPasswordOtpFingerprintAndCancellation) {
   EXPECT_EQ(controller->state(), "connecting");
   transport.connectNow();
   prompt();
-  auto *response = object("responseField");
+  auto* response = object("responseField");
   EXPECT_TRUE(response->property("visible").toBool());
   EXPECT_EQ(response->property("echoMode").toInt(), 2);
   response->setProperty("text", "test-password");
@@ -722,9 +744,11 @@ TEST_F(RuntimeControls, UserSessionPasswordOtpFingerprintAndCancellation) {
   EXPECT_EQ(controller->selectedSession(), "session-2");
   prompt();
   controller->respond("wrong");
-  transport.reply({{"type", "error"},
-                   {"error_type", "auth_error"},
-                   {"description", "backend detail"}});
+  transport.reply({
+      {"type", "error"},
+      {"error_type", "auth_error"},
+      {"description", "backend detail"},
+  });
   EXPECT_FALSE(controller->status().contains("backend detail"));
   transport.reply({{"type", "success"}});
   QMetaObject::invokeMethod(object("primaryButton"), "clicked");
@@ -734,13 +758,12 @@ TEST_F(RuntimeControls, UserSessionPasswordOtpFingerprintAndCancellation) {
   EXPECT_TRUE(response->property("visible").toBool());
 }
 
-TEST_F(RuntimeControls,
-       SuccessfulAuthenticationDisablesSelectorsAndPersistsFakeSession) {
+TEST_F(RuntimeControls, SuccessfulAuthenticationDisablesSelectorsAndPersistsFakeSession) {
   load();
   ASSERT_NE(window, nullptr);
   transport.connectNow();
   prompt();
-  auto *response = object("responseField");
+  auto* response = object("responseField");
   response->setProperty("text", "test-password");
   QMetaObject::invokeMethod(object("primaryButton"), "clicked");
   transport.reply({{"type", "success"}});
@@ -759,7 +782,7 @@ TEST_F(RuntimeControls,
 TEST_F(RuntimeControls, ManualEntryAndConfigurationErrors) {
   load(true);
   ASSERT_NE(window, nullptr);
-  auto *username = object("usernameField");
+  auto* username = object("usernameField");
   EXPECT_TRUE(username->property("visible").toBool());
   EXPECT_FALSE(object("primaryButton")->property("enabled").toBool());
   username->setProperty("text", "manual-user");
@@ -795,8 +818,7 @@ TEST_F(RuntimeControls, PowerConfirmationUsesOnlyFakeService) {
   EXPECT_EQ(power.reboots, 0);
 }
 
-TEST_F(RuntimeControls,
-       KeyboardSelectorCapturesIpcAndPreservesSelectionOnFailure) {
+TEST_F(RuntimeControls, KeyboardSelectorCapturesIpcAndPreservesSelectionOnFailure) {
   load();
   ASSERT_NE(window, nullptr);
   const auto oldPath = qgetenv("PATH");
@@ -804,8 +826,7 @@ TEST_F(RuntimeControls,
   ASSERT_TRUE(script.open(QIODevice::WriteOnly));
   script.write("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\nexit 0\n");
   script.close();
-  ASSERT_TRUE(script.setPermissions(QFile::ReadOwner | QFile::WriteOwner |
-                                    QFile::ExeOwner));
+  ASSERT_TRUE(script.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
   qputenv("PATH", temporary.path().toUtf8());
   activate("keyboardSelector", 1);
   EXPECT_EQ(compositor->keyboardLayoutId(), "de");
@@ -825,9 +846,13 @@ TEST_F(RuntimeControls, ResponsiveLayoutAndScaledPopupOverflowReachability) {
   load();
   ASSERT_NE(window, nullptr);
   EXPECT_EQ(window->size(), QSize(1672, 941));
-  auto *selector = object("sessionSelector");
-  for (const QSize size : {QSize(1672, 941), QSize(899, 941), QSize(900, 941),
-                           QSize(2200, 1200)}) {
+  auto* selector = object("sessionSelector");
+  for (const QSize size : {
+           QSize(1672, 941),
+           QSize(899, 941),
+           QSize(900, 941),
+           QSize(2200, 1200),
+       }) {
     window->resize(size);
     QCoreApplication::processEvents();
     EXPECT_EQ(window->property("compact").toBool(), size.width() < 900);
@@ -835,58 +860,43 @@ TEST_F(RuntimeControls, ResponsiveLayoutAndScaledPopupOverflowReachability) {
       object("loginPanel")->setProperty("scale", scale);
       for (bool above : {false, true}) {
         QCoreApplication::processEvents();
-        const double targetY = above ? size.height() - 56 * scale - 10 : 10;
-        auto *panel = object("loginPanel");
+        const double targetY = above ? size.height() - (56 * scale) - 10 : 10;
+        auto* panel = object("loginPanel");
         panel->setProperty("y", panel->property("y").toDouble() + targetY -
-                                    qobject_cast<QQuickItem *>(selector)
-                                        ->mapToScene(QPointF{})
-                                        .y());
-        auto *popup = evaluate(selector, "popup").value<QObject *>();
+                                    qobject_cast<QQuickItem*>(selector)->mapToScene(QPointF{}).y());
+        auto* popup = evaluate(selector, "popup").value<QObject*>();
         ASSERT_NE(popup, nullptr);
         evaluate(selector, "currentIndex = 24; popup.open()");
-        ASSERT_TRUE(QTest::qWaitFor(
-            [&] { return popup->property("opened").toBool(); }));
-        EXPECT_NEAR(selector->property("effectiveScale").toDouble(), scale,
-                    0.01);
-        EXPECT_EQ(selector->property("delegateHeight"),
-                  selector->property("height"));
+        ASSERT_TRUE(QTest::qWaitFor([&] { return popup->property("opened").toBool(); }));
+        EXPECT_NEAR(selector->property("effectiveScale").toDouble(), scale, 0.01);
+        EXPECT_EQ(selector->property("delegateHeight"), selector->property("height"));
         EXPECT_NEAR(popup->property("scale").toDouble(), scale, 0.01);
         EXPECT_EQ(popup->property("opensAbove").toBool(), above);
         const double renderedTop =
-            popup->property("y").toDouble() +
-            (above ? popup->property("height").toDouble() * (1 - scale) : 0);
+            popup->property("y").toDouble() + (above ? popup->property("height").toDouble() * (1 - scale) : 0);
         EXPECT_GE(renderedTop, 0);
-        EXPECT_LE(renderedTop + popup->property("height").toDouble() * scale,
-                  size.height());
-        auto *list = evaluate(selector, "popup.contentItem").value<QObject *>();
+        EXPECT_LE(renderedTop + (popup->property("height").toDouble() * scale), size.height());
+        auto* list = evaluate(selector, "popup.contentItem").value<QObject*>();
         ASSERT_NE(list, nullptr);
-        ASSERT_TRUE(QTest::qWaitFor([&] {
-          return list->property("contentHeight").toDouble() >
-                 list->property("height").toDouble();
-        }));
+        ASSERT_TRUE(QTest::qWaitFor(
+            [&] { return list->property("contentHeight").toDouble() > list->property("height").toDouble(); }));
         EXPECT_TRUE(list->property("interactive").toBool());
         EXPECT_EQ(list->property("currentIndex").toInt(), 24);
         EXPECT_TRUE(evaluate(list,
                              "currentItem.y >= contentY - 1 && currentItem.y + "
                              "currentItem.height <= contentY + height + 1")
                         .toBool());
-        EXPECT_EQ(evaluate(list, "currentItem.height").toDouble(),
-                  selector->property("height").toDouble());
-        EXPECT_TRUE(
-            evaluate(list, "currentItem.iconSource.toString().length === 0")
-                .toBool());
+        EXPECT_EQ(evaluate(list, "currentItem.height").toDouble(), selector->property("height").toDouble());
+        EXPECT_TRUE(evaluate(list, "currentItem.iconSource.toString().length === 0").toBool());
         evaluate(list, "positionViewAtIndex(0, ListView.Beginning)");
-        ASSERT_TRUE(QTest::qWaitFor(
-            [&] { return list->property("contentY").toDouble() <= 0.1; }));
+        ASSERT_TRUE(QTest::qWaitFor([&] { return list->property("contentY").toDouble() <= 0.1; }));
         evaluate(list, "positionViewAtIndex(count - 1, ListView.End)");
         ASSERT_TRUE(QTest::qWaitFor([&] {
-          return list->property("contentY").toDouble() +
-                     list->property("height").toDouble() >=
+          return list->property("contentY").toDouble() + list->property("height").toDouble() >=
                  list->property("contentHeight").toDouble() - 1;
         }));
         evaluate(selector, "popup.close()");
-        ASSERT_TRUE(QTest::qWaitFor(
-            [&] { return !popup->property("visible").toBool(); }));
+        ASSERT_TRUE(QTest::qWaitFor([&] { return !popup->property("visible").toBool(); }));
       }
     }
   }
@@ -901,14 +911,13 @@ TEST(Wallpaper, SecondaryEngineLoadsTemporaryImageWithoutProviderDiscovery) {
   auto paths = engine.importPathList();
   paths.removeAll(QStringLiteral(HOLONIGHT_QML_IMPORT_PATH));
   engine.setImportPathList(paths);
-  QQmlComponent component(
-      &engine, QUrl("qrc:/qt/qml/Holonight/Greeter/qml/Background.qml"));
-  std::unique_ptr<QObject> root(component.createWithInitialProperties(
-      {{"demo", false},
-       {"backgroundPath", temporary.filePath("wallpaper.png")}}));
+  QQmlComponent component(&engine, QUrl("qrc:/qt/qml/Holonight/Greeter/qml/Background.qml"));
+  std::unique_ptr<QObject> root(component.createWithInitialProperties({
+      {"demo", false},
+      {"backgroundPath", temporary.filePath("wallpaper.png")},
+  }));
   ASSERT_NE(root, nullptr) << qPrintable(component.errorString());
-  ASSERT_TRUE(QTest::qWaitFor(
-      [&] { return root->property("backgroundLoaded").toBool(); }));
+  ASSERT_TRUE(QTest::qWaitFor([&] { return root->property("backgroundLoaded").toBool(); }));
   EXPECT_FALSE(root->property("backgroundLoadFailed").toBool());
 }
-} // namespace
+}  // namespace

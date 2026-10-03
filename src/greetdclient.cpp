@@ -1,15 +1,15 @@
 #include "greetdclient.h"
+
 #include <QJsonDocument>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(greetdProtocol, "holonight.greeter.protocol")
 
 namespace Greeter {
-GreetdClient::GreetdClient(QObject *parent) : IGreetdTransport(parent) {
+GreetdClient::GreetdClient(QObject* parent) : IGreetdTransport(parent) {
   timer_.setSingleShot(true);
   timer_.setInterval(15000);
-  connect(&timer_, &QTimer::timeout, this,
-          [this] { fail(QStringLiteral("greetd timed out"), "timeout"); });
+  connect(&timer_, &QTimer::timeout, this, [this] { fail(QStringLiteral("greetd timed out"), "timeout"); });
   connect(&socket_, &QLocalSocket::connected, this, [this] {
     timer_.stop();
     qCInfo(greetdProtocol) << "transport-connected";
@@ -24,18 +24,19 @@ GreetdClient::GreetdClient(QObject *parent) : IGreetdTransport(parent) {
     expected_.reset();
     input_.fill('\0');
     input_.clear();
-    qCInfo(greetdProtocol) << "transport-disconnected"
-                           << (failing_ ? "after-failure" : "normal");
-    if (!failing_)
+    qCInfo(greetdProtocol) << "transport-disconnected" << (failing_ ? "after-failure" : "normal");
+    if (!failing_) {
       emit disconnected();
+    }
     failing_ = false;
   });
   connect(&socket_, &QLocalSocket::errorOccurred, this, [this](auto) {
-    if (socket_.error() != QLocalSocket::PeerClosedError)
+    if (socket_.error() != QLocalSocket::PeerClosedError) {
       fail(socket_.errorString(), "socket");
+    }
   });
 }
-void GreetdClient::connectTo(const QString &path) {
+void GreetdClient::connectTo(const QString& path) {
   timer_.stop();
   expected_.reset();
   input_.fill('\0');
@@ -50,16 +51,16 @@ void GreetdClient::connectTo(const QString &path) {
   timer_.start();
   socket_.connectToServer(path);
 }
-void GreetdClient::send(const QJsonObject &message) {
+void GreetdClient::send(const QJsonObject& message) {
   if (socket_.state() != QLocalSocket::ConnectedState) {
     fail(QStringLiteral("greetd is not connected"), "not-connected");
     return;
   }
   QByteArray body = QJsonDocument(message).toJson(QJsonDocument::Compact);
-  qCInfo(greetdProtocol).noquote()
-      << "send" << message.value("type").toString();
-  const quint32 size = quint32(body.size());
-  QByteArray frame(reinterpret_cast<const char *>(&size), sizeof(size));
+  qCInfo(greetdProtocol).noquote() << "send" << message.value("type").toString();
+  const auto size = static_cast<quint32>(body.size());
+  QByteArray frame(sizeof(size), Qt::Uninitialized);
+  memcpy(frame.data(), &size, sizeof(size));
   frame += body;
   if (socket_.write(frame) != frame.size()) {
     fail(QStringLiteral("could not queue greetd request"), "write");
@@ -77,9 +78,10 @@ void GreetdClient::disconnectFromServer() {
   input_.clear();
   socket_.disconnectFromServer();
 }
-void GreetdClient::fail(const QString &reason, const char *category) {
-  if (failing_)
+void GreetdClient::fail(const QString& reason, const char* category) {
+  if (failing_) {
     return;
+  }
   failing_ = true;
   qCWarning(greetdProtocol) << "transport-failure" << category;
   timer_.stop();
@@ -87,14 +89,16 @@ void GreetdClient::fail(const QString &reason, const char *category) {
   input_.clear();
   emit failed(reason);
   socket_.abort();
-  if (socket_.state() == QLocalSocket::UnconnectedState)
+  if (socket_.state() == QLocalSocket::UnconnectedState) {
     failing_ = false;
+  }
 }
 void GreetdClient::consume() {
   while (true) {
     if (!expected_) {
-      if (input_.size() < qsizetype(sizeof(quint32)))
+      if (input_.size() < static_cast<qsizetype>(sizeof(quint32))) {
         return;
+      }
       quint32 size = 0;
       memcpy(&size, input_.constData(), sizeof(size));
       input_.remove(0, sizeof(size));
@@ -104,25 +108,23 @@ void GreetdClient::consume() {
       }
       expected_ = size;
     }
-    if (input_.size() < *expected_)
+    if (input_.size() < *expected_) {
       return;
+    }
     const QByteArray body = input_.first(*expected_);
     input_.remove(0, *expected_);
     expected_.reset();
     QJsonParseError parseError;
     const auto document = QJsonDocument::fromJson(body, &parseError);
     if (!document.isObject()) {
-      fail(QStringLiteral("invalid greetd JSON: %1")
-               .arg(parseError.errorString()),
-           "json");
+      fail(QStringLiteral("invalid greetd JSON: %1").arg(parseError.errorString()), "json");
       return;
     }
     timer_.stop();
     const QJsonObject message = document.object();
-    qCInfo(greetdProtocol).noquote()
-        << "receive" << message.value("type").toString()
-        << message.value("auth_message_type").toString();
+    qCInfo(greetdProtocol).noquote() << "receive" << message.value("type").toString()
+                                     << message.value("auth_message_type").toString();
     emit this->message(message);
   }
 }
-} // namespace Greeter
+}  // namespace Greeter

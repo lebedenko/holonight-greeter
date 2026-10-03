@@ -1,21 +1,22 @@
 #pragma once
 #include "services.h"
+
 #include <QLocalSocket>
 #include <QTimer>
 
 namespace Greeter {
 class GreetdClient final : public IGreetdTransport {
   Q_OBJECT
-public:
-  explicit GreetdClient(QObject *parent = nullptr);
-  void connectTo(const QString &path) override;
-  void send(const QJsonObject &message) override;
+ public:
+  explicit GreetdClient(QObject* parent = nullptr);
+  void connectTo(const QString& path) override;
+  void send(const QJsonObject& message) override;
   void cancel() override;
   void disconnectFromServer() override;
 
-private:
+ private:
   void consume();
-  void fail(const QString &reason, const char *category);
+  void fail(const QString& reason, const char* category);
   QLocalSocket socket_;
   QTimer timer_;
   QByteArray input_;
@@ -23,4 +24,4 @@ private:
   bool failing_ = false;
   static constexpr quint32 MaxFrame = 1024 * 1024;
 };
-} // namespace Greeter
+}  // namespace Greeter

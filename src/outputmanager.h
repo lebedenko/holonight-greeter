@@ -7,24 +7,27 @@ class QWindow;
 namespace Greeter {
 class OutputManager final : public QObject {
   Q_OBJECT
-public:
-  OutputManager(QWindow *interactiveWindow, QString configuredOutput,
-                QString background, QObject *parent = nullptr);
+ public:
+  OutputManager(QWindow* interactiveWindow, QString configuredOutput, QString background, QObject* parent = nullptr);
   ~OutputManager() override;
-  QString interactiveOutput() const;
-  int credentialSurfaceCount() const { return interactiveWindow_ ? 1 : 0; }
-public slots:
+  OutputManager(const OutputManager&) = delete;
+  OutputManager& operator=(const OutputManager&) = delete;
+  OutputManager(OutputManager&&) = delete;
+  OutputManager& operator=(OutputManager&&) = delete;
+  [[nodiscard]] QString interactiveOutput() const;
+  [[nodiscard]] int credentialSurfaceCount() const { return interactiveWindow_ ? 1 : 0; }
+ public slots:
   void refresh();
 
-private slots:
+ private slots:
   void backgroundReady();
   void backgroundFailed();
 
-private:
+ private:
   void showSurfacesIfReady();
   QPointer<QWindow> interactiveWindow_;
   QString configuredOutput_;
   QString background_;
-  QVector<QQuickView *> backgrounds_;
+  QVector<QQuickView*> backgrounds_;
 };
-} // namespace Greeter
+}  // namespace Greeter

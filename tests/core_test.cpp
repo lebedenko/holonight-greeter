@@ -5,6 +5,7 @@
 #include "greetdclient.h"
 #include "sessionlauncher.h"
 #include "state.h"
+
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -18,78 +19,80 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
+
 #include <gtest/gtest.h>
 
 namespace {
 class FakeTransport final : public Greeter::IGreetdTransport {
   Q_OBJECT
-public:
+ public:
   QList<QJsonObject> sent;
   QString path;
   int cancellations = 0;
   int disconnections = 0;
   bool disconnectSynchronously = false;
-  void connectTo(const QString &value) override { path = value; }
-  void send(const QJsonObject &message) override { sent += message; }
+  void connectTo(const QString& value) override { path = value; }
+  void send(const QJsonObject& message) override { sent += message; }
   void cancel() override { ++cancellations; }
   void disconnectFromServer() override {
     ++disconnections;
-    if (disconnectSynchronously)
+    if (disconnectSynchronously) {
       emit disconnected();
+    }
   }
   void connectNow() { emit connected(); }
-  void reply(const QJsonObject &value) { emit message(value); }
+  void reply(const QJsonObject& value) { emit message(value); }
   void disconnectNow() { emit disconnected(); }
 };
 class FakeAccounts final : public Greeter::IAccountSource {
-public:
+ public:
   int calls = 0;
-  QList<Greeter::User> records{{"alice", "Alice", {}, 1000}};
+  QList<Greeter::User> records{{.username = "alice", .display_name = "Alice", .avatar = {}, .uid = 1000}};
   QStringList include;
   QStringList exclude;
-  int minUid = 0;
-  int maxUid = 0;
-  QList<Greeter::User> users(const QStringList &included, int minimumUid,
-                             int maximumUid,
-                             const QStringList &excluded) override {
+  int min_uid = 0;
+  int max_uid = 0;
+  QList<Greeter::User> users(const QStringList& included, int minimumUid, int maximumUid,
+                             const QStringList& excluded) override {
     ++calls;
     include = included;
     exclude = excluded;
-    minUid = minimumUid;
-    maxUid = maximumUid;
+    min_uid = minimumUid;
+    max_uid = maximumUid;
     return records;
   }
 };
 class FakePower final : public Greeter::IPowerService {
   Q_OBJECT
-public:
+ public:
   int queries = 0;
   int offs = 0;
   int reboots = 0;
   void queryCapabilities() override { ++queries; }
   void requestPowerOff() override { ++offs; }
   void requestReboot() override { ++reboots; }
-  void capabilitiesNow(bool off, bool reboot, bool confirmationRequired = true,
-                       const QString &reason = {}) {
+  void capabilitiesNow(bool off, bool reboot, bool confirmationRequired = true, const QString& reason = {}) {
     emit capabilities(off, reboot, confirmationRequired, reason);
   }
 };
 class FakeFiles final : public Greeter::IFileSystem {
-public:
+ public:
   QList<Greeter::Session> records{
-      {"holo.desktop", "Holo", {"holo", "--start"}}};
+      {.id = "holo.desktop", .name = "Holo", .command = {"holo", "--start"}},
+  };
   QString savedUser;
   QString savedSession;
   bool savedManual = false;
   int discoveryCalls = 0;
   int saveCalls = 0;
-  QList<Greeter::Session> sessions(const QStringList &, const QStringList &,
-                                   const QStringList &) override {
+  QList<Greeter::Session> sessions([[maybe_unused]] const QStringList& directories,
+                                   [[maybe_unused]] const QStringList& include,
+                                   [[maybe_unused]] const QStringList& exclude) override {
     ++discoveryCalls;
     return records;
   }
-  bool save(const QString &, const QString &user, const QString &session,
-            bool manual, QString *) override {
+  bool save([[maybe_unused]] const QString& path, const QString& user, const QString& session, bool manual,
+            [[maybe_unused]] QString* error) override {
     ++saveCalls;
     savedUser = user;
     savedSession = session;
@@ -97,13 +100,13 @@ public:
     return true;
   }
 };
-} // namespace
+}  // namespace
 
 TEST(Config, MissingUsesDefaultsWithWarning) {
   const auto result = Greeter::loadConfig("/definitely/missing/greeter.toml");
   EXPECT_TRUE(result.valid());
   EXPECT_FALSE(result.warning.isEmpty());
-  EXPECT_EQ(result.value.minUid, 1000);
+  EXPECT_EQ(result.value.min_uid, 1000);
 }
 TEST(Config, RejectsUnsafeValues) {
   QTemporaryDir temporary;
@@ -115,7 +118,7 @@ TEST(Config, RejectsUnsafeValues) {
 }
 TEST(Config, RejectsWrongTypesOverflowAndUnknownKeys) {
   QTemporaryDir temporary;
-  const auto check = [&](const QByteArray &contents) {
+  const auto check = [&](const QByteArray& contents) {
     QFile file(temporary.filePath("greeter.toml"));
     EXPECT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
     file.write(contents);
@@ -132,39 +135,38 @@ TEST(Config, LoadsCompositorAndOrderedLayouts) {
   QTemporaryDir temporary;
   QFile file(temporary.filePath("greeter.toml"));
   ASSERT_TRUE(file.open(QIODevice::WriteOnly));
-  file.write("version=1\n[compositor]\nbackend='cage'\nprimary_output='DP-2'\n"
-             "[keyboard]\ndefault='ua'\noptions='grp:alt_shift_toggle'\n"
-             "layouts=[{id='us',layout='us',variant='',label='EN'},"
-             "{id='ua',layout='ua',variant='',label='UA'}]\n");
+  file.write(
+      "version=1\n[compositor]\nbackend='cage'\nprimary_output='DP-2'\n"
+      "[keyboard]\ndefault='ua'\noptions='grp:alt_shift_toggle'\n"
+      "layouts=[{id='us',layout='us',variant='',label='EN'},"
+      "{id='ua',layout='ua',variant='',label='UA'}]\n");
   file.close();
   const auto result = Greeter::loadConfig(file.fileName());
   ASSERT_TRUE(result.valid()) << result.error.toStdString();
-  EXPECT_EQ(result.value.compositorBackend, "cage");
-  EXPECT_EQ(result.value.primaryOutput, "DP-2");
-  ASSERT_EQ(result.value.keyboardLayouts.size(), 2);
-  EXPECT_EQ(result.value.keyboardLabel, "UA");
+  EXPECT_EQ(result.value.compositor_backend, "cage");
+  EXPECT_EQ(result.value.primary_output, "DP-2");
+  ASSERT_EQ(result.value.keyboard_layouts.size(), 2);
+  EXPECT_EQ(result.value.keyboard_label, "UA");
 }
 TEST(Config, RejectsDuplicateOrMissingDefaultLayout) {
   QTemporaryDir temporary;
-  const auto check = [&](const QByteArray &keyboard) {
+  const auto check = [&](const QByteArray& keyboard) {
     QFile file(temporary.filePath("greeter.toml"));
     EXPECT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
     file.write("version=1\n[keyboard]\n" + keyboard);
     file.close();
     EXPECT_FALSE(Greeter::loadConfig(file.fileName()).valid());
   };
-  check("default='us'\nlayouts=[{id='us',layout='us',label='EN'},"
-        "{id='us',layout='ua',label='UA'}]\n");
+  check(
+      "default='us'\nlayouts=[{id='us',layout='us',label='EN'},"
+      "{id='us',layout='ua',label='UA'}]\n");
   check("default='gone'\nlayouts=[{id='us',layout='us',label='EN'}]\n");
 }
 TEST(OutputPolicy, UsesConfiguredThenPrimaryThenDiscoveryOrder) {
   const QStringList outputs{"HDMI-A-1", "DP-2", "DP-1"};
-  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "DP-2", "HDMI-A-1"),
-            "DP-2");
-  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "gone", "HDMI-A-1"),
-            "HDMI-A-1");
-  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "gone", "also-gone"),
-            "HDMI-A-1");
+  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "DP-2", "HDMI-A-1"), "DP-2");
+  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "gone", "HDMI-A-1"), "HDMI-A-1");
+  EXPECT_EQ(Greeter::selectInteractiveOutput(outputs, "gone", "also-gone"), "HDMI-A-1");
   EXPECT_EQ(Greeter::selectInteractiveOutput({"DP-2"}, "DP-1", "DP-1"), "DP-2");
   EXPECT_TRUE(Greeter::selectInteractiveOutput({}, "DP-1", "DP-1").isEmpty());
 }
@@ -172,36 +174,36 @@ TEST(OutputPolicy, PlansExactlyOneSurfacePerOutput) {
   using Greeter::OutputAssignment;
   using Greeter::OutputRole;
   EXPECT_TRUE(Greeter::planOutputs({}, {}, {}).isEmpty());
-  EXPECT_EQ(Greeter::planOutputs({"eDP-1"}, {}, {}),
-            QList<OutputAssignment>({{"eDP-1", OutputRole::Interactive}}));
+  EXPECT_EQ(Greeter::planOutputs({"eDP-1"}, {}, {}), QList<OutputAssignment>({{"eDP-1", OutputRole::Interactive}}));
   EXPECT_EQ(Greeter::planOutputs({"eDP-1", "DP-5"}, {}, "DP-5"),
-            QList<OutputAssignment>({{"eDP-1", OutputRole::Wallpaper},
-                                     {"DP-5", OutputRole::Interactive}}));
-  EXPECT_EQ(Greeter::planOutputs({"eDP-1", "DP-5", "HDMI-A-1"}, {}, "gone"),
-            QList<OutputAssignment>({{"eDP-1", OutputRole::Interactive},
-                                     {"DP-5", OutputRole::Wallpaper},
-                                     {"HDMI-A-1", OutputRole::Wallpaper}}));
-  EXPECT_EQ(Greeter::planOutputs({"DP-5"}, {}, "eDP-1"),
-            QList<OutputAssignment>({{"DP-5", OutputRole::Interactive}}));
+            QList<OutputAssignment>({{"eDP-1", OutputRole::Wallpaper}, {"DP-5", OutputRole::Interactive}}));
+  EXPECT_EQ(
+      Greeter::planOutputs({"eDP-1", "DP-5", "HDMI-A-1"}, {}, "gone"),
+      QList<OutputAssignment>(
+          {{"eDP-1", OutputRole::Interactive}, {"DP-5", OutputRole::Wallpaper}, {"HDMI-A-1", OutputRole::Wallpaper}}));
+  EXPECT_EQ(Greeter::planOutputs({"DP-5"}, {}, "eDP-1"), QList<OutputAssignment>({{"DP-5", OutputRole::Interactive}}));
 }
 TEST(CompositorAdapter, SelectsConfiguredLayoutByIdAfterSuccessfulIpc) {
   QTemporaryDir temporary;
   ASSERT_TRUE(temporary.isValid());
   QFile hyprctl(temporary.filePath("hyprctl"));
   ASSERT_TRUE(hyprctl.open(QIODevice::WriteOnly));
-  hyprctl.write("#!/bin/sh\n[ \"$1\" = switchxkblayout ] && "
-                "[ \"$2\" = all ] && [ \"$3\" = 1 ]\n");
+  hyprctl.write(
+      "#!/bin/sh\n[ \"$1\" = switchxkblayout ] && "
+      "[ \"$2\" = all ] && [ \"$3\" = 1 ]\n");
   hyprctl.close();
-  ASSERT_TRUE(QFile::setPermissions(
-      hyprctl.fileName(), QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                              QFileDevice::ExeOwner));
+  ASSERT_TRUE(QFile::setPermissions(hyprctl.fileName(),
+                                    QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
   const QByteArray oldPath = qgetenv("PATH");
   qputenv("PATH", temporary.path().toLocal8Bit() + ':' + oldPath);
 
   Greeter::Config config;
-  config.compositorBackend = "hyprland";
-  config.keyboardDefault = "us";
-  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  config.compositor_backend = "hyprland";
+  config.keyboard_default = "us";
+  config.keyboard_layouts = {
+      {.id = "us", .layout = "us", .variant = "", .label = "EN"},
+      {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
+  };
   Greeter::CompositorAdapter adapter(config);
   EXPECT_EQ(adapter.keyboardLayoutId(), "us");
   EXPECT_TRUE(adapter.selectLayout("ua"));
@@ -211,17 +213,19 @@ TEST(CompositorAdapter, SelectsConfiguredLayoutByIdAfterSuccessfulIpc) {
   qputenv("PATH", oldPath);
 }
 
-TEST(CompositorAdapter,
-     PreservesLayoutForInvalidUnsupportedAndFailedSelection) {
+TEST(CompositorAdapter, PreservesLayoutForInvalidUnsupportedAndFailedSelection) {
   Greeter::Config config;
-  config.compositorBackend = "cage";
-  config.keyboardDefault = "us";
-  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  config.compositor_backend = "cage";
+  config.keyboard_default = "us";
+  config.keyboard_layouts = {
+      {.id = "us", .layout = "us", .variant = "", .label = "EN"},
+      {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
+  };
   Greeter::CompositorAdapter unsupported(config);
   EXPECT_FALSE(unsupported.selectLayout("ua"));
   EXPECT_EQ(unsupported.keyboardLayoutId(), "us");
 
-  config.compositorBackend = "hyprland";
+  config.compositor_backend = "hyprland";
   Greeter::CompositorAdapter invalid(config);
   EXPECT_FALSE(invalid.selectLayout("missing"));
   EXPECT_EQ(invalid.keyboardLayoutId(), "us");
@@ -232,9 +236,8 @@ TEST(CompositorAdapter,
   ASSERT_TRUE(hyprctl.open(QIODevice::WriteOnly));
   hyprctl.write("#!/bin/sh\nexit 1\n");
   hyprctl.close();
-  ASSERT_TRUE(QFile::setPermissions(
-      hyprctl.fileName(), QFileDevice::ReadOwner | QFileDevice::WriteOwner |
-                              QFileDevice::ExeOwner));
+  ASSERT_TRUE(QFile::setPermissions(hyprctl.fileName(),
+                                    QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
   const QByteArray oldPath = qgetenv("PATH");
   qputenv("PATH", temporary.path().toLocal8Bit() + ':' + oldPath);
   Greeter::CompositorAdapter failed(config);
@@ -243,28 +246,26 @@ TEST(CompositorAdapter,
   qputenv("PATH", oldPath);
 }
 TEST(SessionLauncher, ConstructsOnlyFixedCageArguments) {
-  const auto command = Greeter::cageCommand("/usr/bin/holonight-greeter",
-                                            "/etc/holonight/greeter.toml");
+  const auto command = Greeter::cageCommand("/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
   EXPECT_EQ(command.program, "dbus-run-session");
-  EXPECT_EQ(command.arguments,
-            QStringList({"cage", "-s", "-m", "extend", "-d", "--",
-                         "/usr/bin/holonight-greeter", "--config",
-                         "/etc/holonight/greeter.toml"}));
+  EXPECT_EQ(command.arguments, QStringList({"cage", "-s", "-m", "extend", "-d", "--", "/usr/bin/holonight-greeter",
+                                            "--config", "/etc/holonight/greeter.toml"}));
 }
 TEST(SessionLauncher, UsesStartHyprlandWithPrivateLuaConfiguration) {
-  const auto command =
-      Greeter::hyprlandCommand("/run/holonight-greeter/session/hyprland.lua");
+  const auto command = Greeter::hyprlandCommand("/run/holonight-greeter/session/hyprland.lua");
   EXPECT_EQ(command.program, "dbus-run-session");
   EXPECT_EQ(command.arguments,
-            QStringList({"start-hyprland", "--", "--config",
-                         "/run/holonight-greeter/session/hyprland.lua"}));
+            QStringList({"start-hyprland", "--", "--config", "/run/holonight-greeter/session/hyprland.lua"}));
 }
 TEST(SessionLauncher, GeneratesIsolatedHyprlandKeyboardConfiguration) {
   Greeter::Config config;
-  config.keyboardOptions = "grp:alt_shift_toggle";
-  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
-  const QString generated = Greeter::hyprlandConfig(
-      config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
+  config.keyboard_options = "grp:alt_shift_toggle";
+  config.keyboard_layouts = {
+      {.id = "us", .layout = "us", .variant = "", .label = "EN"},
+      {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
+  };
+  const QString generated =
+      Greeter::hyprlandConfig(config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
   EXPECT_TRUE(generated.contains("kb_layout = \"us,ua\""));
   EXPECT_TRUE(generated.contains("kb_options = \"grp:alt_shift_toggle\""));
   EXPECT_TRUE(generated.contains("hl.on(\"hyprland.start\""));
@@ -275,74 +276,70 @@ TEST(SessionLauncher, GeneratesIsolatedHyprlandKeyboardConfiguration) {
 }
 TEST(SessionLauncher, PlacesConfiguredDefaultLayoutFirst) {
   Greeter::Config config;
-  config.keyboardDefault = "ua";
-  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
-  const QString generated = Greeter::hyprlandConfig(
-      config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
+  config.keyboard_default = "ua";
+  config.keyboard_layouts = {
+      {.id = "us", .layout = "us", .variant = "", .label = "EN"},
+      {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
+  };
+  const QString generated =
+      Greeter::hyprlandConfig(config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
   EXPECT_TRUE(generated.contains("kb_layout = \"ua,us\""));
 }
 TEST(SessionLauncher, GeneratedLuaPassesInstalledHyprlandParser) {
   const QString hyprland = QStandardPaths::findExecutable("Hyprland");
-  if (hyprland.isEmpty())
+  if (hyprland.isEmpty()) {
     GTEST_SKIP() << "Hyprland is not installed";
+  }
   QTemporaryDir temporary;
   const QString path = temporary.filePath("hyprland.lua");
   QFile file(path);
   ASSERT_TRUE(file.open(QIODevice::WriteOnly));
   Greeter::Config config;
-  config.keyboardLayouts = {{"us", "us", "", "EN"}, {"ua", "ua", "", "UA"}};
+  config.keyboard_layouts = {
+      {.id = "us", .layout = "us", .variant = "", .label = "EN"},
+      {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
+  };
   ASSERT_GT(
-      file.write(Greeter::hyprlandConfig(config, "/usr/bin/holonight-greeter",
-                                         "/etc/holonight/greeter.toml")
-                     .toUtf8()),
+      file.write(Greeter::hyprlandConfig(config, "/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml").toUtf8()),
       0);
   file.close();
   QProcess process;
   process.start(hyprland, {"--verify-config", "--config", path});
   ASSERT_TRUE(process.waitForFinished(5000));
   EXPECT_EQ(process.exitStatus(), QProcess::NormalExit);
-  EXPECT_EQ(process.exitCode(), 0)
-      << process.readAllStandardError().toStdString()
-      << process.readAllStandardOutput().toStdString();
+  EXPECT_EQ(process.exitCode(), 0) << process.readAllStandardError().toStdString()
+                                   << process.readAllStandardOutput().toStdString();
 }
 TEST(DesktopExec, ExpandsSafeCodesWithoutShell) {
   QString error;
-  const auto command = Greeter::parseDesktopExec(
-      "/usr/bin/session --name \"%c\" %% %f", "Holo Night",
-      "/tmp/session.desktop", {}, &error);
+  const auto command = Greeter::parseDesktopExec("/usr/bin/session --name \"%c\" %% %f", "Holo Night",
+                                                 "/tmp/session.desktop", {}, &error);
   EXPECT_TRUE(error.isEmpty());
-  EXPECT_EQ(command,
-            QStringList({"/usr/bin/session", "--name", "Holo Night", "%"}));
+  EXPECT_EQ(command, QStringList({"/usr/bin/session", "--name", "Holo Night", "%"}));
 }
 TEST(DesktopExec, RejectsUnknownCodeAndMalformedQuote) {
   QString error;
-  EXPECT_TRUE(
-      Greeter::parseDesktopExec("session %d", {}, {}, {}, &error).isEmpty());
+  EXPECT_TRUE(Greeter::parseDesktopExec("session %d", {}, {}, {}, &error).isEmpty());
   EXPECT_FALSE(error.isEmpty());
   error.clear();
-  EXPECT_TRUE(Greeter::parseDesktopExec("session \"oops", {}, {}, {}, &error)
-                  .isEmpty());
+  EXPECT_TRUE(Greeter::parseDesktopExec("session \"oops", {}, {}, {}, &error).isEmpty());
 }
 TEST(DesktopDiscovery, PreservesQuotedInstalledSessionCommands) {
-  for (const QString &prefix :
-       {QString("/usr"), QString("/home/test user/.local")}) {
-    for (const QString &compositor : {QString("hyprland"), QString("sway")}) {
+  for (const QString& prefix : {QString("/usr"), QString("/home/test user/.local")}) {
+    for (const QString& compositor : {QString("hyprland"), QString("sway")}) {
       SCOPED_TRACE((prefix + ":" + compositor).toStdString());
       QTemporaryDir temporary;
       ASSERT_TRUE(temporary.isValid());
       QFile file(temporary.filePath("holonight.desktop"));
       ASSERT_TRUE(file.open(QIODevice::WriteOnly));
       const QString executable = prefix + "/bin/holonight-session";
-      file.write(("[Desktop Entry]\nType=Application\nName=HoloNight\nExec=\"" +
-                  executable + "\" " + compositor + "\n")
+      file.write(("[Desktop Entry]\nType=Application\nName=HoloNight\nExec=\"" + executable + "\" " + compositor + "\n")
                      .toUtf8());
       file.close();
 
-      const auto sessions =
-          Greeter::discoverSessions({temporary.path()}, {}, {});
+      const auto sessions = Greeter::discoverSessions({temporary.path()}, {}, {});
       ASSERT_EQ(sessions.size(), 1);
-      EXPECT_EQ(sessions.first().command,
-                QStringList({executable, compositor}));
+      EXPECT_EQ(sessions.first().command, QStringList({executable, compositor}));
     }
   }
 }
@@ -365,11 +362,8 @@ Exec=wrong-command
   const auto sessions = Greeter::discoverSessions({temporary.path()}, {}, {});
   ASSERT_EQ(sessions.size(), 1);
   EXPECT_EQ(sessions.first().name, "Holo Night, desktop");
-  EXPECT_EQ(
-      sessions.first().command,
-      QStringList({"/opt/Holo Night/session", "back\\slash", "say \"hello\"",
-                   "$HOME", "a,b;c", "Holo Night, desktop", "--icon",
-                   "session-icon", "%"}));
+  EXPECT_EQ(sessions.first().command, QStringList({"/opt/Holo Night/session", "back\\slash", "say \"hello\"", "$HOME",
+                                                   "a,b;c", "Holo Night, desktop", "--icon", "session-icon", "%"}));
 }
 
 TEST(DesktopDiscovery, PreservesUnquotedCommandsAndEntryWhitespace) {
@@ -377,25 +371,25 @@ TEST(DesktopDiscovery, PreservesUnquotedCommandsAndEntryWhitespace) {
   ASSERT_TRUE(temporary.isValid());
   QFile file(temporary.filePath("uwsm.desktop"));
   ASSERT_TRUE(file.open(QIODevice::WriteOnly));
-  file.write("# Session descriptor\n\n[Desktop Entry]\r\n"
-             "Type = Application\r\nName = Hyprland (uwsm-managed)\r\n"
-             "Exec = uwsm start -e -D Hyprland hyprland.desktop\r\n");
+  file.write(
+      "# Session descriptor\n\n[Desktop Entry]\r\n"
+      "Type = Application\r\nName = Hyprland (uwsm-managed)\r\n"
+      "Exec = uwsm start -e -D Hyprland hyprland.desktop\r\n");
   file.close();
 
   const auto sessions = Greeter::discoverSessions({temporary.path()}, {}, {});
   ASSERT_EQ(sessions.size(), 1);
-  EXPECT_EQ(sessions.first().command,
-            QStringList(
-                {"uwsm", "start", "-e", "-D", "Hyprland", "hyprland.desktop"}));
+  EXPECT_EQ(sessions.first().command, QStringList({"uwsm", "start", "-e", "-D", "Hyprland", "hyprland.desktop"}));
 }
 
 TEST(DesktopDiscovery, RejectsMalformedSessionEntries) {
-  for (const QByteArray &body :
-       {QByteArray("[Desktop Entry]\nExec=\"session hyprland\n"),
-        QByteArray("[Desktop Entry]\nExec=session\\q hyprland\n"),
-        QByteArray("[Desktop Entry]\nExec=session\\\n"),
-        QByteArray("[Desktop Entry]\nExec=first\nExec=second\n"),
-        QByteArray("[Desktop Action Other]\nExec=session\n")}) {
+  for (const QByteArray& body : {
+           QByteArray("[Desktop Entry]\nExec=\"session hyprland\n"),
+           QByteArray("[Desktop Entry]\nExec=session\\q hyprland\n"),
+           QByteArray("[Desktop Entry]\nExec=session\\\n"),
+           QByteArray("[Desktop Entry]\nExec=first\nExec=second\n"),
+           QByteArray("[Desktop Action Other]\nExec=session\n"),
+       }) {
     SCOPED_TRACE(body.toStdString());
     QTemporaryDir temporary;
     ASSERT_TRUE(temporary.isValid());
@@ -403,8 +397,7 @@ TEST(DesktopDiscovery, RejectsMalformedSessionEntries) {
     ASSERT_TRUE(file.open(QIODevice::WriteOnly));
     file.write(body + "Type=Application\nName=Invalid\n");
     file.close();
-    EXPECT_TRUE(
-        Greeter::discoverSessions({temporary.path()}, {}, {}).isEmpty());
+    EXPECT_TRUE(Greeter::discoverSessions({temporary.path()}, {}, {}).isEmpty());
   }
 }
 
@@ -413,48 +406,46 @@ TEST(DesktopDiscovery, PreservesFiltersAndDirectoryPrecedence) {
   QTemporaryDir second;
   ASSERT_TRUE(first.isValid());
   ASSERT_TRUE(second.isValid());
-  for (const QString &directory : {first.path(), second.path()}) {
+  for (const QString& directory : {first.path(), second.path()}) {
     QFile file(directory + "/session.desktop");
     ASSERT_TRUE(file.open(QIODevice::WriteOnly));
-    file.write(
-        "[Desktop Entry]\nType=Application\nName=Session\nExec=session\n");
-    if (directory == first.path())
+    file.write("[Desktop Entry]\nType=Application\nName=Session\nExec=session\n");
+    if (directory == first.path()) {
       file.write("Hidden=true\n");
+    }
   }
-  EXPECT_TRUE(Greeter::discoverSessions({first.path(), second.path()}, {}, {})
-                  .isEmpty());
-  EXPECT_TRUE(Greeter::discoverSessions({second.path()}, {"other.desktop"}, {})
-                  .isEmpty());
-  EXPECT_TRUE(
-      Greeter::discoverSessions({second.path()}, {}, {"session.desktop"})
-          .isEmpty());
-  ASSERT_EQ(Greeter::discoverSessions({second.path()}, {"session.desktop"}, {})
-                .size(),
-            1);
+  EXPECT_TRUE(Greeter::discoverSessions({first.path(), second.path()}, {}, {}).isEmpty());
+  EXPECT_TRUE(Greeter::discoverSessions({second.path()}, {"other.desktop"}, {}).isEmpty());
+  EXPECT_TRUE(Greeter::discoverSessions({second.path()}, {}, {"session.desktop"}).isEmpty());
+  ASSERT_EQ(Greeter::discoverSessions({second.path()}, {"session.desktop"}, {}).size(), 1);
 }
 
 TEST(DesktopDiscovery, DecodesDesktopListsAndHonorsVisibility) {
   const bool hadDesktop = qEnvironmentVariableIsSet("XDG_CURRENT_DESKTOP");
   const QByteArray oldDesktop = qgetenv("XDG_CURRENT_DESKTOP");
   const auto restoreDesktop = qScopeGuard([&] {
-    if (hadDesktop)
+    if (hadDesktop) {
       qputenv("XDG_CURRENT_DESKTOP", oldDesktop);
-    else
+    } else {
       qunsetenv("XDG_CURRENT_DESKTOP");
+    }
   });
   qputenv("XDG_CURRENT_DESKTOP", "Test;Desktop:Hyprland");
   QTemporaryDir temporary;
   ASSERT_TRUE(temporary.isValid());
-  for (const QByteArray &extra : {QByteArray(), QByteArray("NoDisplay=true\n"),
-                                  QByteArray("NotShowIn=Other;Hyprland;\n")}) {
+  for (const QByteArray& extra : {
+           QByteArray(),
+           QByteArray("NoDisplay=true\n"),
+           QByteArray("NotShowIn=Other;Hyprland;\n"),
+       }) {
     QFile file(temporary.filePath("session.desktop"));
     ASSERT_TRUE(file.open(QIODevice::WriteOnly));
-    file.write("[Desktop Entry]\nType=Application\nName=Session\nExec=session\n"
-               "OnlyShowIn=Other;Test\\;Desktop;\n" +
-               extra);
+    file.write(
+        "[Desktop Entry]\nType=Application\nName=Session\nExec=session\n"
+        "OnlyShowIn=Other;Test\\;Desktop;\n" +
+        extra);
     file.close();
-    EXPECT_EQ(Greeter::discoverSessions({temporary.path()}, {}, {}).size(),
-              extra.isEmpty() ? 1 : 0);
+    EXPECT_EQ(Greeter::discoverSessions({temporary.path()}, {}, {}).size(), extra.isEmpty() ? 1 : 0);
   }
 }
 
@@ -466,18 +457,15 @@ TEST(DesktopDiscovery, ChecksTryExecWithoutTreatingItAsACommandLine) {
   ASSERT_TRUE(program.open(QIODevice::WriteOnly));
   program.write("#!/bin/sh\nexit 0\n");
   program.close();
-  ASSERT_TRUE(program.setPermissions(QFileDevice::ReadOwner |
-                                     QFileDevice::WriteOwner |
-                                     QFileDevice::ExeOwner));
-  for (const QString &tryExec : {executable, temporary.filePath("missing")}) {
+  ASSERT_TRUE(program.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+  for (const QString& tryExec : {executable, temporary.filePath("missing")}) {
     QFile file(temporary.filePath("session.desktop"));
     ASSERT_TRUE(file.open(QIODevice::WriteOnly));
-    file.write(("[Desktop Entry]\nType=Application\nName=Session\nExec=\"" +
-                executable + "\"\nTryExec=" + tryExec + "\n")
-                   .toUtf8());
+    file.write(
+        ("[Desktop Entry]\nType=Application\nName=Session\nExec=\"" + executable + "\"\nTryExec=" + tryExec + "\n")
+            .toUtf8());
     file.close();
-    EXPECT_EQ(Greeter::discoverSessions({temporary.path()}, {}, {}).size(),
-              tryExec == executable ? 1 : 0);
+    EXPECT_EQ(Greeter::discoverSessions({temporary.path()}, {}, {}).size(), tryExec == executable ? 1 : 0);
   }
 }
 
@@ -485,14 +473,12 @@ TEST(State, RoundTripsAndOmitsManualUser) {
   QTemporaryDir temporary;
   const QString path = temporary.filePath("state.json");
   QString error;
-  ASSERT_TRUE(Greeter::saveState(path, {"alice", "holo.desktop"}, true, &error))
-      << error.toStdString();
+  ASSERT_TRUE(Greeter::saveState(path, {"alice", "holo.desktop"}, true, &error)) << error.toStdString();
   const auto state = Greeter::loadState(path);
-  EXPECT_TRUE(state.lastUser.isEmpty());
-  EXPECT_EQ(state.lastSession, "holo.desktop");
+  EXPECT_TRUE(state.last_user.isEmpty());
+  EXPECT_EQ(state.last_session, "holo.desktop");
   EXPECT_EQ(QFileInfo(path).permissions() &
-                (QFileDevice::ReadGroup | QFileDevice::WriteGroup |
-                 QFileDevice::ReadOther | QFileDevice::WriteOther),
+                (QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ReadOther | QFileDevice::WriteOther),
             0);
 }
 TEST(State, CorruptionIsNonFatal) {
@@ -502,20 +488,18 @@ TEST(State, CorruptionIsNonFatal) {
   file.write("not json");
   file.close();
   const auto state = Greeter::loadState(file.fileName());
-  EXPECT_TRUE(state.lastUser.isEmpty());
-  EXPECT_TRUE(state.lastSession.isEmpty());
+  EXPECT_TRUE(state.last_user.isEmpty());
+  EXPECT_TRUE(state.last_session.isEmpty());
 }
 TEST(State, SelectsSavedThenDefaultThenFirst) {
-  const QStringList sessions{"first.desktop", "default.desktop",
-                             "saved.desktop"};
-  EXPECT_EQ(Greeter::selectSession({{}, "saved.desktop"}, "default.desktop",
-                                   sessions),
-            "saved.desktop");
-  EXPECT_EQ(
-      Greeter::selectSession({{}, "gone.desktop"}, "default.desktop", sessions),
-      "default.desktop");
-  EXPECT_EQ(Greeter::selectSession({}, "gone.desktop", sessions),
-            "first.desktop");
+  const QStringList sessions{
+      "first.desktop",
+      "default.desktop",
+      "saved.desktop",
+  };
+  EXPECT_EQ(Greeter::selectSession({{}, "saved.desktop"}, "default.desktop", sessions), "saved.desktop");
+  EXPECT_EQ(Greeter::selectSession({{}, "gone.desktop"}, "default.desktop", sessions), "default.desktop");
+  EXPECT_EQ(Greeter::selectSession({}, "gone.desktop", sessions), "first.desktop");
 }
 
 TEST(Controller, RunsCompleteAuthenticationAndPersistsAfterStart) {
@@ -524,9 +508,8 @@ TEST(Controller, RunsCompleteAuthenticationAndPersistsAfterStart) {
   FakePower power;
   FakeFiles files;
   Greeter::Config config;
-  config.defaultSession = "holo.desktop";
-  Greeter::Controller controller(false, {}, config, "/unused", &transport,
-                                 &accounts, &power, &files);
+  config.default_session = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport, &accounts, &power, &files);
   QSignalSpy sessionStarted(&controller, &Greeter::Controller::sessionStarted);
   qputenv("GREETD_SOCK", "/tmp/greetd.sock");
   controller.begin("alice");
@@ -535,9 +518,11 @@ TEST(Controller, RunsCompleteAuthenticationAndPersistsAfterStart) {
   ASSERT_EQ(transport.sent.size(), 1);
   EXPECT_EQ(transport.sent[0].value("type"), "create_session");
   EXPECT_EQ(transport.sent[0].value("username"), "alice");
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "secret"},
-                   {"auth_message", "Password"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "secret"},
+      {"auth_message", "Password"},
+  });
   EXPECT_TRUE(controller.secret());
   controller.respond("sensitive");
   ASSERT_EQ(transport.sent.size(), 2);
@@ -545,10 +530,8 @@ TEST(Controller, RunsCompleteAuthenticationAndPersistsAfterStart) {
   transport.reply({{"type", "success"}});
   ASSERT_EQ(transport.sent.size(), 3);
   EXPECT_EQ(transport.sent[2].value("type"), "start_session");
-  EXPECT_EQ(transport.sent[2].value("cmd").toArray(),
-            QJsonArray({"holo", "--start"}));
-  EXPECT_EQ(transport.sent[2].value("env").toArray(),
-            QJsonArray({"XDG_SESSION_TYPE=wayland"}));
+  EXPECT_EQ(transport.sent[2].value("cmd").toArray(), QJsonArray({"holo", "--start"}));
+  EXPECT_EQ(transport.sent[2].value("env").toArray(), QJsonArray({"XDG_SESSION_TYPE=wayland"}));
   EXPECT_TRUE(files.savedUser.isEmpty());
   transport.reply({{"type", "success"}});
   EXPECT_EQ(controller.state(), "authenticated");
@@ -561,27 +544,25 @@ TEST(Controller, SelectsSavedEligibleUserOtherwiseFirstUser) {
   QTemporaryDir temporary;
   const QString statePath = temporary.filePath("state.json");
   QString error;
-  ASSERT_TRUE(
-      Greeter::saveState(statePath, {"bob", "holo.desktop"}, false, &error));
+  ASSERT_TRUE(Greeter::saveState(statePath, {"bob", "holo.desktop"}, false, &error));
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records = {{"alice", "Alice", {}, 1000}, {"bob", "Bob", {}, 1001}};
+  accounts.records = {
+      {.username = "alice", .display_name = "Alice", .avatar = {}, .uid = 1000},
+      {.username = "bob", .display_name = "Bob", .avatar = {}, .uid = 1001},
+  };
   FakePower power;
   FakeFiles files;
-  Greeter::Controller saved(false, {}, {}, statePath, &transport, &accounts,
-                            &power, &files);
+  Greeter::Controller saved(false, {}, {}, statePath, &transport, &accounts, &power, &files);
   EXPECT_EQ(saved.initialUser(), "bob");
 
-  ASSERT_TRUE(Greeter::saveState(statePath, {"removed", "holo.desktop"}, false,
-                                 &error));
-  Greeter::Controller fallback(false, {}, {}, statePath, &transport, &accounts,
-                               &power, &files);
+  ASSERT_TRUE(Greeter::saveState(statePath, {"removed", "holo.desktop"}, false, &error));
+  Greeter::Controller fallback(false, {}, {}, statePath, &transport, &accounts, &power, &files);
   EXPECT_EQ(fallback.initialUser(), "alice");
 
   Greeter::Config manualConfig;
-  manualConfig.userMode = Greeter::Config::UserMode::Manual;
-  Greeter::Controller manual(false, {}, manualConfig, statePath, &transport,
-                             &accounts, &power, &files);
+  manualConfig.user_mode = Greeter::Config::UserMode::Manual;
+  Greeter::Controller manual(false, {}, manualConfig, statePath, &transport, &accounts, &power, &files);
   EXPECT_TRUE(manual.initialUser().isEmpty());
 }
 
@@ -591,25 +572,30 @@ TEST(Controller, HandlesMixedPromptsCancellationAndDisconnectFailClosed) {
   FakePower power;
   FakeFiles files;
   Greeter::Config config;
-  config.defaultSession = "holo.desktop";
-  Greeter::Controller controller(false, {}, config, "/unused", &transport,
-                                 &accounts, &power, &files);
+  config.default_session = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport, &accounts, &power, &files);
   controller.begin("alice");
   transport.connectNow();
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "info"},
-                   {"auth_message", "Insert token"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "info"},
+      {"auth_message", "Insert token"},
+  });
   EXPECT_TRUE(transport.sent.last().value("response").isNull());
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "error"},
-                   {"auth_message", "AUTH_ERR"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "error"},
+      {"auth_message", "AUTH_ERR"},
+  });
   EXPECT_EQ(controller.state(), "waiting");
   EXPECT_TRUE(controller.prompt().isEmpty());
   EXPECT_EQ(controller.status(), "Authentication failed");
   EXPECT_TRUE(transport.sent.last().value("response").isNull());
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "visible"},
-                   {"auth_message", "Code"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "visible"},
+      {"auth_message", "Code"},
+  });
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_EQ(controller.status(), "Authentication failed");
   transport.disconnectNow();
@@ -621,22 +607,23 @@ TEST(Controller, HandlesMixedPromptsCancellationAndDisconnectFailClosed) {
 TEST(Controller, WaitsForCancellationBeforeRestartingOrSwitchingUsers) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records += {"bob", "Bob", {}, 1001};
+  accounts.records += {.username = "bob", .display_name = "Bob", .avatar = {}, .uid = 1001};
   FakePower power;
   FakeFiles files;
   Greeter::Config config;
-  config.defaultSession = "holo.desktop";
-  Greeter::Controller controller(false, {}, config, "/unused", &transport,
-                                 &accounts, &power, &files);
+  config.default_session = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport, &accounts, &power, &files);
   controller.begin("alice");
   controller.begin("bob");
   EXPECT_EQ(controller.state(), "connecting");
   EXPECT_EQ(transport.cancellations, 0);
   transport.connectNow();
   EXPECT_EQ(transport.sent.last().value("username"), "bob");
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "secret"},
-                   {"auth_message", "Password"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "secret"},
+      {"auth_message", "Password"},
+  });
   controller.begin("alice");
   EXPECT_EQ(controller.state(), "waiting");
   EXPECT_EQ(transport.cancellations, 1);
@@ -646,22 +633,28 @@ TEST(Controller, WaitsForCancellationBeforeRestartingOrSwitchingUsers) {
   EXPECT_EQ(transport.sent.last().value("type"), "create_session");
   EXPECT_EQ(transport.sent.last().value("username"), "alice");
 
-  transport.reply({{"type", "error"},
-                   {"error_type", "auth_error"},
-                   {"description", "pam_authenticate: AUTH_ERR"}});
+  transport.reply({
+      {"type", "error"},
+      {"error_type", "auth_error"},
+      {"description", "pam_authenticate: AUTH_ERR"},
+  });
   EXPECT_EQ(controller.state(), "waiting");
   EXPECT_EQ(transport.cancellations, 2);
   transport.disconnectSynchronously = true;
-  transport.reply({{"type", "error"},
-                   {"error_type", "error"},
-                   {"description", "no session to cancel"}});
+  transport.reply({
+      {"type", "error"},
+      {"error_type", "error"},
+      {"description", "no session to cancel"},
+  });
   EXPECT_EQ(controller.state(), "connecting");
   EXPECT_TRUE(controller.status().isEmpty());
   transport.connectNow();
   EXPECT_EQ(transport.sent.last().value("username"), "alice");
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "secret"},
-                   {"auth_message", "Password"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "secret"},
+      {"auth_message", "Password"},
+  });
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_EQ(controller.status(), "Authentication failed");
   EXPECT_TRUE(controller.secret());
@@ -673,14 +666,15 @@ TEST(Controller, EscapeRestartsAuthenticationForCurrentUser) {
   FakePower power;
   FakeFiles files;
   Greeter::Config config;
-  config.defaultSession = "holo.desktop";
-  Greeter::Controller controller(false, {}, config, "/unused", &transport,
-                                 &accounts, &power, &files);
+  config.default_session = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport, &accounts, &power, &files);
   controller.begin("alice");
   transport.connectNow();
-  transport.reply({{"type", "auth_message"},
-                   {"auth_message_type", "secret"},
-                   {"auth_message", "Password"}});
+  transport.reply({
+      {"type", "auth_message"},
+      {"auth_message_type", "secret"},
+      {"auth_message", "Password"},
+  });
 
   controller.restartAuthentication();
   EXPECT_EQ(controller.state(), "waiting");
@@ -697,9 +691,8 @@ TEST(Controller, GatesPowerOnCapabilityAndSessionConfirmation) {
   FakePower power;
   FakeFiles files;
   Greeter::Config config;
-  config.defaultSession = "holo.desktop";
-  Greeter::Controller controller(false, {}, config, "/unused", &transport,
-                                 &accounts, &power, &files);
+  config.default_session = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport, &accounts, &power, &files);
   EXPECT_EQ(power.queries, 1);
   controller.requestReboot();
   EXPECT_EQ(power.reboots, 0);
@@ -727,9 +720,8 @@ TEST(Controller, AllowsConfirmedPowerRequestDuringAuthentication) {
   FakePower power;
   FakeFiles files;
   Greeter::Config config;
-  config.defaultSession = "holo.desktop";
-  Greeter::Controller controller(false, {}, config, "/unused", &transport,
-                                 &accounts, &power, &files);
+  config.default_session = "holo.desktop";
+  Greeter::Controller controller(false, {}, config, "/unused", &transport, &accounts, &power, &files);
   power.capabilitiesNow(true, true, true, "Could not query logind sessions");
   controller.begin("alice");
   transport.connectNow();
@@ -740,31 +732,31 @@ TEST(Controller, AllowsConfirmedPowerRequestDuringAuthentication) {
 TEST(Demo, DiscoversConfiguredUsersAndSessionsWithoutPrivilegedServices) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records = {{"alice", "Alice", "/avatars/alice.png", 1100},
-                      {"bob", "Bob", "/avatars/bob.png", 1200}};
+  accounts.records = {
+      {.username = "alice", .display_name = "Alice", .avatar = "/avatars/alice.png", .uid = 1100},
+      {.username = "bob", .display_name = "Bob", .avatar = "/avatars/bob.png", .uid = 1200},
+  };
   FakePower power;
   FakeFiles files;
-  files.records += {"plasma.desktop", "Plasma", {"startplasma-wayland"}};
+  files.records += {.id = "plasma.desktop", .name = "Plasma", .command = {"startplasma-wayland"}};
   Greeter::Config config;
-  config.userMode = Greeter::Config::UserMode::Manual;
-  config.minUid = 1100;
-  config.maxUid = 1200;
-  config.includeUsers = {"alice", "bob"};
-  config.excludeUsers = {"guest"};
-  Greeter::Controller controller(true, "default", config,
-                                 "/definitely/unreadable/state", &transport,
-                                 &accounts, &power, &files);
+  config.user_mode = Greeter::Config::UserMode::Manual;
+  config.min_uid = 1100;
+  config.max_uid = 1200;
+  config.include_users = {"alice", "bob"};
+  config.exclude_users = {"guest"};
+  Greeter::Controller controller(true, "default", config, "/definitely/unreadable/state", &transport, &accounts, &power,
+                                 &files);
   EXPECT_EQ(accounts.calls, 1);
-  EXPECT_EQ(accounts.include, config.includeUsers);
-  EXPECT_EQ(accounts.exclude, config.excludeUsers);
-  EXPECT_EQ(accounts.minUid, 1100);
-  EXPECT_EQ(accounts.maxUid, 1200);
+  EXPECT_EQ(accounts.include, config.include_users);
+  EXPECT_EQ(accounts.exclude, config.exclude_users);
+  EXPECT_EQ(accounts.min_uid, 1100);
+  EXPECT_EQ(accounts.max_uid, 1200);
   EXPECT_EQ(files.discoveryCalls, 1);
   EXPECT_EQ(power.queries, 0);
   ASSERT_EQ(controller.users().size(), 2);
   EXPECT_EQ(controller.users()[0].toMap().value("username"), "alice");
-  EXPECT_EQ(controller.users()[0].toMap().value("avatar"),
-            "/avatars/alice.png");
+  EXPECT_EQ(controller.users()[0].toMap().value("avatar"), "/avatars/alice.png");
   EXPECT_EQ(controller.users()[1].toMap().value("username"), "bob");
   EXPECT_EQ(controller.users()[1].toMap().value("avatar"), "/avatars/bob.png");
   EXPECT_EQ(controller.initialUser(), "alice");
@@ -788,23 +780,22 @@ TEST(Demo, FallsBackToProcessAccountWhenDiscoveryIsEmpty) {
   accounts.records.clear();
   FakePower power;
   FakeFiles files;
-  Greeter::Controller controller(true, "default", {}, "/unused", &transport,
-                                 &accounts, &power, &files);
+  Greeter::Controller controller(true, "default", {}, "/unused", &transport, &accounts, &power, &files);
   EXPECT_EQ(accounts.calls, 1);
   ASSERT_EQ(controller.users().size(), 1);
-  EXPECT_FALSE(
-      controller.users()[0].toMap().value("username").toString().isEmpty());
+  EXPECT_FALSE(controller.users()[0].toMap().value("username").toString().isEmpty());
 }
 
 TEST(Demo, SwitchingUsersRestartsTheDeterministicPrompt) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records = {{"alice", "Alice", "/avatars/alice.png", 1000},
-                      {"bob", "Bob", "/avatars/bob.png", 1001}};
+  accounts.records = {
+      {.username = "alice", .display_name = "Alice", .avatar = "/avatars/alice.png", .uid = 1000},
+      {.username = "bob", .display_name = "Bob", .avatar = "/avatars/bob.png", .uid = 1001},
+  };
   FakePower power;
   FakeFiles files;
-  Greeter::Controller controller(true, "otp", {}, "/unused", &transport,
-                                 &accounts, &power, &files);
+  Greeter::Controller controller(true, "otp", {}, "/unused", &transport, &accounts, &power, &files);
   controller.begin("alice");
   controller.respond("demo-password");
   EXPECT_EQ(controller.prompt(), "One-time code");
@@ -825,13 +816,11 @@ TEST(Demo, SwitchingUsersRestartsTheDeterministicPrompt) {
 TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
+  accounts.records += {.username = "bob", .display_name = "Bob", .avatar = "/avatars/bob.png", .uid = 1001};
   FakePower power;
   FakeFiles files;
-  Greeter::Controller controller(true, "default", {}, "/unused", &transport,
-                                 &accounts, &power, &files);
-  controller.begin(
-      controller.users().first().toMap().value("username").toString());
+  Greeter::Controller controller(true, "default", {}, "/unused", &transport, &accounts, &power, &files);
+  controller.begin(controller.users().first().toMap().value("username").toString());
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_EQ(controller.prompt(), "Password");
   EXPECT_TRUE(controller.secret());
@@ -850,13 +839,11 @@ TEST(Demo, DefaultAuthenticatesWithoutExternalCalls) {
 TEST(Demo, WrongPasswordImmediatelyRefreshesPasswordPrompt) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
+  accounts.records += {.username = "bob", .display_name = "Bob", .avatar = "/avatars/bob.png", .uid = 1001};
   FakePower power;
   FakeFiles files;
-  Greeter::Controller controller(true, "wrong-password", {}, "/unused",
-                                 &transport, &accounts, &power, &files);
-  const QString username =
-      controller.users().first().toMap().value("username").toString();
+  Greeter::Controller controller(true, "wrong-password", {}, "/unused", &transport, &accounts, &power, &files);
+  const QString username = controller.users().first().toMap().value("username").toString();
   controller.begin(username);
   controller.respond("wrong");
   EXPECT_EQ(controller.state(), "input-prompt");
@@ -874,13 +861,11 @@ TEST(Demo, WrongPasswordImmediatelyRefreshesPasswordPrompt) {
 TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
+  accounts.records += {.username = "bob", .display_name = "Bob", .avatar = "/avatars/bob.png", .uid = 1001};
   FakePower power;
   FakeFiles files;
-  Greeter::Controller controller(true, "otp", {}, "/unused", &transport,
-                                 &accounts, &power, &files);
-  controller.begin(
-      controller.users().first().toMap().value("username").toString());
+  Greeter::Controller controller(true, "otp", {}, "/unused", &transport, &accounts, &power, &files);
+  controller.begin(controller.users().first().toMap().value("username").toString());
   EXPECT_EQ(controller.prompt(), "Password");
   EXPECT_TRUE(controller.secret());
   controller.respond("demo-password");
@@ -900,14 +885,12 @@ TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
 TEST(Demo, FingerprintCompletesAfterInformationalPrompt) {
   FakeTransport transport;
   FakeAccounts accounts;
-  accounts.records += {"bob", "Bob", "/avatars/bob.png", 1001};
+  accounts.records += {.username = "bob", .display_name = "Bob", .avatar = "/avatars/bob.png", .uid = 1001};
   FakePower power;
   FakeFiles files;
-  Greeter::Controller controller(true, "fingerprint", {}, "/unused", &transport,
-                                 &accounts, &power, &files);
+  Greeter::Controller controller(true, "fingerprint", {}, "/unused", &transport, &accounts, &power, &files);
   QSignalSpy changed(&controller, &Greeter::Controller::changed);
-  controller.begin(
-      controller.users().first().toMap().value("username").toString());
+  controller.begin(controller.users().first().toMap().value("username").toString());
   EXPECT_EQ(controller.state(), "informational-prompt");
   EXPECT_EQ(controller.prompt(), "Touch the fingerprint sensor");
   EXPECT_FALSE(controller.secret());
@@ -919,8 +902,7 @@ TEST(Demo, FingerprintCompletesAfterInformationalPrompt) {
 }
 
 TEST(GreetdTransport, AcceptsFragmentedAndCoalescedNativeEndianFrames) {
-  const QString socketPath =
-      "/tmp/hgr-" + QUuid::createUuid().toString(QUuid::Id128);
+  const QString socketPath = "/tmp/hgr-" + QUuid::createUuid().toString(QUuid::Id128);
   QLocalServer server;
   ASSERT_TRUE(server.listen(socketPath)) << server.errorString().toStdString();
   Greeter::GreetdClient client;
@@ -929,14 +911,14 @@ TEST(GreetdTransport, AcceptsFragmentedAndCoalescedNativeEndianFrames) {
   client.connectTo(socketPath);
   ASSERT_TRUE(server.waitForNewConnection(1000));
   ASSERT_TRUE(connected.wait(1000) || connected.count() == 1);
-  auto *peer = server.nextPendingConnection();
+  auto* peer = server.nextPendingConnection();
   ASSERT_NE(peer, nullptr);
-  const auto frame = [](const QJsonObject &object) {
-    const QByteArray body =
-        QJsonDocument(object).toJson(QJsonDocument::Compact);
-    const quint32 size = static_cast<quint32>(body.size());
-    return QByteArray(reinterpret_cast<const char *>(&size), sizeof(size)) +
-           body;
+  const auto frame = [](const QJsonObject& object) {
+    const QByteArray body = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    const auto size = static_cast<quint32>(body.size());
+    QByteArray header(sizeof(size), Qt::Uninitialized);
+    memcpy(header.data(), &size, sizeof(size));
+    return header + body;
   };
   const QByteArray first = frame({{"type", "success"}});
   const QByteArray second = frame({{"type", "error"}, {"description", "no"}});
@@ -952,8 +934,7 @@ TEST(GreetdTransport, AcceptsFragmentedAndCoalescedNativeEndianFrames) {
 }
 
 TEST(GreetdTransport, RejectsOversizedAndMalformedFrames) {
-  const QString socketPath =
-      "/tmp/hgr-" + QUuid::createUuid().toString(QUuid::Id128);
+  const QString socketPath = "/tmp/hgr-" + QUuid::createUuid().toString(QUuid::Id128);
   QLocalServer server;
   ASSERT_TRUE(server.listen(socketPath)) << server.errorString().toStdString();
   Greeter::GreetdClient client;
@@ -962,30 +943,32 @@ TEST(GreetdTransport, RejectsOversizedAndMalformedFrames) {
   client.connectTo(socketPath);
   ASSERT_TRUE(server.waitForNewConnection(1000));
   ASSERT_TRUE(connected.wait(1000) || connected.count() == 1);
-  auto *peer = server.nextPendingConnection();
-  quint32 size = 1024 * 1024 + 1;
-  peer->write(QByteArray(reinterpret_cast<const char *>(&size), sizeof(size)));
+  auto* peer = server.nextPendingConnection();
+  quint32 size = (1024 * 1024) + 1;
+  QByteArray header(sizeof(size), Qt::Uninitialized);
+  memcpy(header.data(), &size, sizeof(size));
+  peer->write(header);
   peer->flush();
   ASSERT_TRUE(failed.wait(1000));
   EXPECT_TRUE(failed.at(0).at(0).toString().contains("frame length"));
 }
 
 TEST(DemoCli, StartsDocumentedCommandsOffscreen) {
-  const QList<QStringList> arguments{{"--demo"},
-                                     {"--demo-scenario", "wrong-password"},
-                                     {"--demo-scenario", "otp"},
-                                     {"--demo-scenario", "fingerprint"}};
-  for (const auto &commandArguments : arguments) {
+  const QList<QStringList> arguments{
+      {"--demo"},
+      {"--demo-scenario", "wrong-password"},
+      {"--demo-scenario", "otp"},
+      {"--demo-scenario", "fingerprint"},
+  };
+  for (const auto& commandArguments : arguments) {
     QProcess process;
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert("QT_QPA_PLATFORM", "offscreen");
     process.setProcessEnvironment(environment);
     process.start(GREETER_EXECUTABLE_PATH, commandArguments);
-    ASSERT_TRUE(process.waitForStarted(2000))
-        << process.errorString().toStdString();
+    ASSERT_TRUE(process.waitForStarted(2000)) << process.errorString().toStdString();
     QTest::qWait(150);
-    EXPECT_EQ(process.state(), QProcess::Running)
-        << process.readAllStandardError().toStdString();
+    EXPECT_EQ(process.state(), QProcess::Running) << process.readAllStandardError().toStdString();
     process.terminate();
     if (!process.waitForFinished(1000)) {
       process.kill();

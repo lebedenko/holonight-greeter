@@ -1,15 +1,18 @@
 #pragma once
 
 #include "config.h"
+
 #include <QObject>
 #include <QVariantList>
 
+#include <cstdint>
+
 namespace Greeter {
-enum class OutputRole { Interactive, Wallpaper };
+enum class OutputRole : std::uint8_t { Interactive, Wallpaper };
 struct OutputAssignment {
   QString name;
   OutputRole role;
-  bool operator==(const OutputAssignment &) const = default;
+  bool operator==(const OutputAssignment&) const = default;
 };
 
 class CompositorAdapter final : public QObject {
@@ -17,32 +20,29 @@ class CompositorAdapter final : public QObject {
   Q_PROPERTY(QString backendName READ backendName CONSTANT)
   Q_PROPERTY(bool canCycleLayout READ canCycleLayout CONSTANT)
   Q_PROPERTY(QString keyboardLabel READ keyboardLabel NOTIFY layoutChanged)
-  Q_PROPERTY(
-      QString keyboardLayoutId READ keyboardLayoutId NOTIFY layoutChanged)
+  Q_PROPERTY(QString keyboardLayoutId READ keyboardLayoutId NOTIFY layoutChanged)
   Q_PROPERTY(QVariantList layouts READ layouts CONSTANT)
-public:
-  explicit CompositorAdapter(Config config, QObject *parent = nullptr);
-  QString backendName() const { return backend_; }
-  bool canCycleLayout() const;
-  QString keyboardLabel() const;
-  QString keyboardLayoutId() const;
-  QVariantList layouts() const;
+ public:
+  explicit CompositorAdapter(Config config, QObject* parent = nullptr);
+  [[nodiscard]] QString backendName() const { return backend_; }
+  [[nodiscard]] bool canCycleLayout() const;
+  [[nodiscard]] QString keyboardLabel() const;
+  [[nodiscard]] QString keyboardLayoutId() const;
+  [[nodiscard]] QVariantList layouts() const;
   Q_INVOKABLE bool cycleLayout();
-  Q_INVOKABLE bool selectLayout(const QString &id);
-signals:
+  Q_INVOKABLE bool selectLayout(const QString& identifier);
+ signals:
   void layoutChanged();
 
-private:
+ private:
   QString backend_;
   QString legacyLabel_;
   QList<KeyboardLayout> layouts_;
   int current_ = 0;
 };
 
-[[nodiscard]] QString selectInteractiveOutput(const QStringList &connected,
-                                              const QString &configured,
-                                              const QString &primary);
-[[nodiscard]] QList<OutputAssignment> planOutputs(const QStringList &connected,
-                                                  const QString &configured,
-                                                  const QString &primary);
-} // namespace Greeter
+[[nodiscard]] QString selectInteractiveOutput(const QStringList& connected, const QString& configured,
+                                              const QString& primary);
+[[nodiscard]] QList<OutputAssignment> planOutputs(const QStringList& connected, const QString& configured,
+                                                  const QString& primary);
+}  // namespace Greeter
