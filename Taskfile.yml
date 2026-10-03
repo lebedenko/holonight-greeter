@@ -13,6 +13,10 @@ vars:
   LIVE_ROOT: /tmp/holonight-greeter-live
   PRESET: '{{default "debug" .PRESET}}'
 tasks:
+  ci:
+    desc: Rehearse push validation in pinned isolated containers
+    cmds:
+    - python3 scripts/ci/run.py
   license-check:
     desc: Validate REUSE licensing metadata
     cmds:

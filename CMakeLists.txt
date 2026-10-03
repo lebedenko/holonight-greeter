@@ -135,7 +135,7 @@ endif()
 
 find_program(CLANG_FORMAT clang-format)
 if(CLANG_FORMAT)
-  file(GLOB_RECURSE FORMAT_FILES CONFIGURE_DEPENDS src/*.cpp src/*.h tests/*.cpp)
+  file(GLOB_RECURSE FORMAT_FILES CONFIGURE_DEPENDS src/*.cpp src/*.h tests/*.cpp tests/*.h)
   add_custom_target(format-check COMMAND ${CLANG_FORMAT} --dry-run --Werror ${FORMAT_FILES})
 endif()
 

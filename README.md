@@ -133,3 +133,15 @@ GPL-3.0-or-later — see [LICENSE](LICENSE).
 
 See [tooling/README.md](tooling/README.md) for presets, local dependency overrides, editor refresh,
 `task tooling:doctor`, and the independent Serena project.
+
+## Local CI rehearsal
+
+Run `task ci` with Python 3, Git and Docker (Podman fallback) and registry/GitHub/archive access.
+It runs the same pinned build/test/static/package and REUSE 6.2.0 checks as push CI.
+Tracked edits and non-ignored new inputs enter read-only snapshots; HEAD comparison
+checks whitespace in both edited and new files. Add reported untracked inputs before pushing.
+Every lane builds fresh application/provider trees; normal development builds remain intact.
+Complete logs, revision/dirty status, image/tool identities and runtime evidence are
+host-owned under ignored `build/ci/`. Missing or failed required checks return nonzero
+and print their complete logs. Container layers may be cached. Startup checks use
+demo mode and disposable user/service paths. Publication, uploads and pin updates are excluded.

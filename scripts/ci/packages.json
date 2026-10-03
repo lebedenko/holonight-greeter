@@ -1,0 +1,20 @@
+[
+  {
+    "name": "ripgrep",
+    "version": "15.2.0-1",
+    "sha256": "4ab540861ee43dfe6974403dd3f03830615fd4b53971736f5c4fc7aa82133a21",
+    "url": "https://archive.archlinux.org/packages/r/ripgrep/ripgrep-15.2.0-1-x86_64.pkg.tar.zst"
+  },
+  {
+    "name": "layer-shell-qt",
+    "version": "6.7.4-1",
+    "sha256": "5f29b5b3f388da4dc005d80bea452ec0949fdca08ccc261708e0226f1c1315c5",
+    "url": "https://archive.archlinux.org/packages/l/layer-shell-qt/layer-shell-qt-6.7.4-1-x86_64.pkg.tar.zst"
+  },
+  {
+    "name": "ttf-dejavu",
+    "version": "2.37+18+g9b5d1b2f-8",
+    "sha256": "d46da489e776dd3d74def85d6d613509db408e9de7a7e3445c63832fd3798e65",
+    "url": "https://archive.archlinux.org/packages/t/ttf-dejavu/ttf-dejavu-2.37%2B18%2Bg9b5d1b2f-8-any.pkg.tar.zst"
+  }
+]

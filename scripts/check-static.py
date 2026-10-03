@@ -19,4 +19,4 @@ with tempfile.TemporaryDirectory(prefix="greeter-tidy-") as directory:
     (Path(directory) / "compile_commands.json").write_text(json.dumps(entries))
     sources = sorted({e["file"] for e in entries if Path(e["file"]).is_relative_to(root / "src")
                       or Path(e["file"]).is_relative_to(root / "tests")})
-    subprocess.run(["run-clang-tidy", "-p", directory, "-j", "4", *sources], check=True)
+    subprocess.run(["run-clang-tidy", "-p", directory, "-j", "2", "-header-filter", rf"^{root}/(src|tests)/.*\.(h|hpp)$", *sources], check=True)
