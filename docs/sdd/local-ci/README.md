@@ -48,3 +48,14 @@ experiments remain disabled. Header filters cover only owned source/tests;
 format validation now includes test headers. Expected Qt-private ABI notices
 remain visible; the layer-shell supplement matches the pinned Qt build.
 No production greeter, host configuration changes, publication or pin updates.
+
+## EDM-019 superseding preparation contract
+
+The historical acceptance above remains historical evidence. Current CI uses the qualified
+full Arch image, explicit `task ci:prepare`, Config/Qt revisions and four offline lanes
+described in [external dependency management](../external-dependency-management/SPEC.md).
+The project image, bootstrap package installation and provider fetching inside acceptance are retired.
+
+Owned-header strict tidy continues through `scripts/check-static.py`; canonical tooling
+provides developer commands and consistent configuration. Caret graphics now run in the
+build-test lane for both styles and scales, with historical diagnostic experiments disabled.

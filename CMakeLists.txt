@@ -91,8 +91,8 @@ install(PROGRAMS deploy/holonight-greeter-cage-diagnostic
   DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/holonight-greeter)
 
 if(BUILD_TESTING)
-  find_package(Qt6 6.11 REQUIRED COMPONENTS Test QmlPrivate)
-  find_package(GTest REQUIRED)
+  find_package(Qt6 ${Qt6_VERSION} EXACT REQUIRED COMPONENTS Test QmlPrivate)
+  find_package(GTest 1.14 CONFIG REQUIRED)
   enable_testing()
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_executable(greeter_tests tests/main.cpp tests/core_test.cpp)

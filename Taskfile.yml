@@ -1,13 +1,7 @@
 version: '3'
 vars:
-  BUILD_DIR: build/debug
+  BUILD_DIR: 'build/{{.PRESET}}'
   HOLONIGHT_QT_PREFIX: '{{default (printf "%s/build/deps/prefix" .TASKFILE_DIR) .HOLONIGHT_DEPENDENCY_PREFIX}}'
-  HOLONIGHT_QT_DIR: '{{.TASKFILE_DIR}}/build/deps/prefix/lib/cmake/HolonightQt'
-  HOLONIGHT_CONFIG_DIR: '{{.TASKFILE_DIR}}/build/deps/prefix/lib/cmake/HoloNightConfig'
-  HOLONIGHT_QT_SOURCE: '{{default "../holonight-qt" .HOLONIGHT_QT_SOURCE}}'
-  HOLONIGHT_QT_REVISION: 0d5bdf094e6e759210531c4babdd2023e5d56485
-  HOLONIGHT_CONFIG_SOURCE: '{{default "../holonight-config" .HOLONIGHT_CONFIG_SOURCE}}'
-  HOLONIGHT_CONFIG_REVISION: 03fa635cedc506e101a148fc54f7eb46d17c6de5
   NPROC: 4
   SYSTEM_BUILD_DIR: build/release
   LIVE_ROOT: /tmp/holonight-greeter-live
@@ -21,14 +15,10 @@ tasks:
     desc: Validate REUSE licensing metadata
     cmds:
     - reuse lint
-  build:config-dependency:
-    desc: deps using standalone tooling
+  ci:prepare:
+    desc: Explicitly acquire pinned images and exact provider sources, then run task deps
     cmds:
-    - python3 tooling/workflow.py deps
-  build:qt-dependency:
-    desc: deps using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py deps
+    - python3 scripts/ci/run.py --prepare
   configure:
     desc: configure using standalone tooling
     cmds:
@@ -39,7 +29,7 @@ tasks:
     - python3 tooling/workflow.py build --preset {{.PRESET}}
   configure:system:
     cmds:
-    - cmake -S . -B {{.SYSTEM_BUILD_DIR}} -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr
+    - python3 tooling/workflow.py configure --preset release
   build:system:
     deps:
     - configure:system
@@ -66,9 +56,9 @@ tasks:
     - sh: test ! -e /run/greetd-holonight-live.sock
       msg: /run/greetd-holonight-live.sock already exists; verify that no live test is running
     cmds:
-    - cmake -S . -B {{.LIVE_ROOT}}/build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr
-    - cmake --build {{.LIVE_ROOT}}/build
-    - DESTDIR={{.LIVE_ROOT}}/root cmake --install {{.LIVE_ROOT}}/build
+    - task: configure:release
+    - cmake --build build/release
+    - DESTDIR={{.LIVE_ROOT}}/root cmake --install build/release
     - install -m 0644 deploy/greetd-live.toml {{.LIVE_ROOT}}/greetd-live.toml
     - sudo install -d -o greeter -g greeter -m 0700 {{.LIVE_ROOT}}/state
     - bash scripts/run-live-test.sh
@@ -94,11 +84,12 @@ tasks:
     cmds:
     - python3 scripts/check-runtime-launches.py {{.BUILD_DIR}}/holonight-greeter {{.HOLONIGHT_QT_PREFIX}} --logs {{.BUILD_DIR}}/launch-build
   caret-graphics:
-    desc: Compare caret pixels on isolated headless Sway with the staged theme
-    deps:
-    - build
+    desc: Compare caret pixels on isolated headless Sway with prepared providers
     cmds:
-    - python3 scripts/check-caret-graphics.py {{.BUILD_DIR}}/greeter_runtime_tests {{.HOLONIGHT_QT_PREFIX}} --logs {{.BUILD_DIR}}/caret-graphics
+    - task: build
+      vars:
+        PRESET: test
+    - python3 scripts/check-caret-graphics.py build/test/greeter_runtime_tests "{{.HOLONIGHT_QT_PREFIX}}" --logs build/test/caret-graphics
   tooling:doctor:
     desc: doctor using standalone tooling
     cmds:

@@ -19,18 +19,20 @@ A Qt 6 / QML [greetd](https://sr.ht/~kennylevinsen/greetd/) greeter for the Holo
 
 Building requires a C++23 compiler, CMake 3.25 or newer, Ninja, Qt 6.11 (`Core`, `Gui`, `Quick`, `Qml`, `Network`,
 `DBus`, and `Test` when tests are enabled), `layer-shell-qt`, toml++, HoloNight Qt 0.1.1 (`Core` and `Controls`),
-and GTest, Python 3, and the Qt QML private headers when tests are enabled.
+and installed GTest >=1.14 CONFIG, Python 3, and the Qt QML private headers when tests are enabled.
 
 Production additionally requires greetd, logind, and either Hyprland (the default) or Cage. Layer shell binds each
 fullscreen greeter surface to its intended Wayland output.
 
 ## Build and test
 
-Task builds the pinned configuration and Qt provider revisions from sibling checkouts
-into `build/deps/prefix`, without a system installation:
+Run `task deps` explicitly to prepare supplied local Config then Qt sources into
+`build/deps/prefix`. Configure, build and test only validate prepared inputs; they never acquire sources.
+Qt Controls and Wayland are enabled; provider tests, demo and gallery are disabled:
 
 ```sh
-task build
+task deps PRESET=test
+task build PRESET=test
 task test
 task lint
 task tidy
@@ -38,12 +40,15 @@ task runtime-launches
 ```
 
 Override `HOLONIGHT_CONFIG_SOURCE` and `HOLONIGHT_QT_SOURCE` when the dependency
-checkouts are elsewhere. Their revisions must match the pins in `Taskfile.yml`.
+checkouts are elsewhere. The accepted provider revisions are Config
+`0ccd25f323662f50a47bb048be636160f2b7c135` and Qt `7c3ce074a8c2e02e4ee8cad8cd19eb8627aa4f68`.
+`HOLONIGHT_DEPENDENCY_PREFIX` selects installed internal providers;
+`HOLONIGHT_EXTERNAL_PREFIX` separately selects installed external packages.
 For already installed dependencies, direct CMake configuration remains supported:
 
 ```sh
-cmake -S . -B build -G Ninja -DBUILD_TESTING=ON -DCMAKE_PREFIX_PATH=/path/to/prefix
-cmake --build build/debug
+cmake -S . -B build/test -G Ninja -DBUILD_TESTING=ON -DHOLONIGHT_DEPENDENCY_PREFIX=/path/to/prefix
+cmake --build build/test
 ctest --test-dir build/test --output-on-failure
 ```
 
@@ -136,12 +141,20 @@ See [tooling/README.md](tooling/README.md) for presets, local dependency overrid
 
 ## Local CI rehearsal
 
-Run `task ci` with Python 3, Git and Docker (Podman fallback) and registry/GitHub/archive access.
-It runs the same pinned build/test/static/package and REUSE 6.2.0 checks as push CI.
-Tracked edits and non-ignored new inputs enter read-only snapshots; HEAD comparison
-checks whitespace in both edited and new files. Add reported untracked inputs before pushing.
-Every lane builds fresh application/provider trees; normal development builds remain intact.
-Complete logs, revision/dirty status, image/tool identities and runtime evidence are
-host-owned under ignored `build/ci/`. Missing or failed required checks return nonzero
-and print their complete logs. Container layers may be cached. Startup checks use
-demo mode and disposable user/service paths. Publication, uploads and pin updates are excluded.
+Run `task ci:prepare` explicitly to pull the qualified full Arch image and pinned REUSE image,
+clone exact provider commits, and run `task deps`. For local source transport use
+`python3 scripts/ci/run.py --prepare --provider-source-root ..`; dirty provider working trees
+are ignored in favor of the exact committed revisions. Then run `task ci`.
+
+Build-test, Release/tests-OFF staging, strict static checks and licensing run with
+`--pull=never --network=none`, caller UID/GID, read-only inputs and private runtime directories.
+Preparation records image identities, provider revisions, environment versions and content/mode hashes;
+stale or tampered preparation is rejected. Compatible provider artifacts can be reused after validation.
+Build-test preserves eight CTest registrations, four startup selectors and the four headless Sway caret
+style/scale cases. Release checks four installed selectors and rejects build/preparation path leakage.
+Hyprland parser checks retain their existing skip when unavailable; native compositor verification is EDM-022.
+
+Logs and structured hashes are under ignored `build/ci/`. Each lane builds a fresh application tree.
+Tracked edits and non-ignored new files enter the isolated snapshot; add reported inputs before committing.
+Host installation, live greetd/VT testing, desktop automation, Debian qualification, publication and pin updates
+are outside this acceptance.

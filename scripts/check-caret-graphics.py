@@ -4,6 +4,7 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import time
 
@@ -24,6 +25,15 @@ def main():
     runner = Path(__file__).with_name('run-isolated-test.py')
     with tempfile.TemporaryDirectory(prefix='greeter-caret-') as directory:
         root = Path(directory)
+        # Arch Sway requests CAP_SYS_NICE through a file capability. A private
+        # byte-for-byte copy needs no privileged capability for headless rendering.
+        # copyfile deliberately omits the installed executable's capability xattr.
+        sway = root / 'sway'
+        installed_sway = shutil.which('sway')
+        if not installed_sway:
+            raise RuntimeError('Headless Sway is required')
+        shutil.copyfile(installed_sway, sway)
+        sway.chmod(0o700)
         config = root / 'sway.conf'
         # Keep compositor tiling from asynchronously replacing test dimensions.
         config.write_text('output HEADLESS-1 mode 2560x1600 scale 1\n'
@@ -32,7 +42,7 @@ def main():
                    XDG_RUNTIME_DIR=str(root), WLR_BACKENDS='headless',
                    WLR_RENDERER='pixman', WLR_LIBINPUT_NO_DEVICES='1')
         with (args.logs / 'sway.log').open('w') as log:
-            compositor = subprocess.Popen(['sway', '--config', str(config)],
+            compositor = subprocess.Popen([str(sway), '--config', str(config)],
                                           env=env, stdout=log, stderr=subprocess.STDOUT)
             try:
                 deadline = time.monotonic() + 10

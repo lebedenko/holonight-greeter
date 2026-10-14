@@ -3,7 +3,9 @@
 Work package: EDM-019
 Baseline: `d99e0a17f95af977a42785957e9311597e38bab0`
 Umbrella audit: `38146d8f474317f3f8d72699f60e6d16a71dd165`
-Status: Planned; adoption awaits the canonical bundle/environment handoff.
+Status: Locally verified; publication and umbrella pinning pending separately.
+Implementation baseline: `31e8f8ece6d4bb4e90d11433a253150726535916`
+Coordinator handoff: `ab22e74bd8d5660b599d439c4887bed088f90637`
 
 ## Requirements
 
@@ -29,13 +31,13 @@ Preserve existing dependency interfaces and component switches; adopt installed 
 
 ## Implementation and verification tasks
 
-- [ ] Confirm the exact baseline and canonical handoff before implementation.
-- [ ] Adopt declarations, prefix helpers, explicit preparation and compatibility signatures.
-- [ ] Apply the repository-specific discovery changes above.
-- [ ] Update Task, CI preparation/entrypoints, Dockerfiles, release lanes and contributor instructions.
-- [ ] Run declaration/CMake/profile consistency checks and offline missing-package regressions.
-- [ ] Run narrow regressions, clean acceptance, installed-package consumers and required quality checks.
-- [ ] Inspect complete logs; record commands, versions, features, warnings and manual checks.
-- [ ] Make a repository-local commit only after local verification; publish only when authorized.
+- [x] Confirm the exact baseline and canonical handoff before implementation.
+- [x] Adopt declarations, prefix helpers, explicit preparation and compatibility signatures.
+- [x] Apply the repository-specific discovery changes above.
+- [x] Update Task, CI preparation/entrypoints, retire project image/bootstrap, add Release lane and contributor instructions.
+- [x] Run declaration/CMake/profile consistency checks and offline missing-package regressions.
+- [x] Run narrow regressions, clean acceptance, installed-package consumers and required quality checks.
+- [x] Inspect complete logs; record commands, versions, features, warnings and manual checks.
+- [x] Make a repository-local commit only after local verification; publish only when authorized.
 
-Implementation has not started. No build/test result is claimed for the adoption.
+See [verification](VERIFICATION.md), [structured evidence](EVIDENCE.json) and [tasks](TASKS.md).
