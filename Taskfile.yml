@@ -1,35 +1,15 @@
 version: '3'
 vars:
-  BUILD_DIR: 'build/{{.PRESET}}'
-  HOLONIGHT_QT_PREFIX: '{{default (printf "%s/build/deps/prefix" .TASKFILE_DIR) .HOLONIGHT_DEPENDENCY_PREFIX}}'
-  NPROC: 4
+  PRESET: '{{default "dev" .PRESET}}'
+  BUILD_DIR: build/{{.PRESET}}
   SYSTEM_BUILD_DIR: build/release
   LIVE_ROOT: /tmp/holonight-greeter-live
-  PRESET: '{{default "debug" .PRESET}}'
+  PROVIDER_PREFIX: '{{default "/usr" .PROVIDER_PREFIX}}'
 tasks:
-  ci:
-    desc: Rehearse push validation in pinned isolated containers
-    cmds:
-    - python3 scripts/ci/run.py
   license-check:
     desc: Validate REUSE licensing metadata
     cmds:
     - reuse lint
-  ci:prepare:
-    desc: Explicitly acquire pinned images and exact provider sources, then run task deps
-    cmds:
-    - python3 scripts/ci/run.py --prepare
-  configure:
-    desc: configure using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py configure --preset {{.PRESET}}
-  build:
-    desc: build using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py build --preset {{.PRESET}}
-  configure:system:
-    cmds:
-    - python3 tooling/workflow.py configure --preset release
   build:system:
     deps:
     - configure:system
@@ -62,108 +42,76 @@ tasks:
     - install -m 0644 deploy/greetd-live.toml {{.LIVE_ROOT}}/greetd-live.toml
     - sudo install -d -o greeter -g greeter -m 0700 {{.LIVE_ROOT}}/state
     - bash scripts/run-live-test.sh
-  test:
-    desc: test using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py test --preset {{.PRESET}}
-  lint:
-    deps:
-    - build
-    cmds:
-    - task: tidy
-    - cmake --build {{.BUILD_DIR}} --target format-check
-    - cmake --build {{.BUILD_DIR}} --target qml-lint
-    - git diff --check
-  tidy:
-    desc: tidy using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py tidy --scope all
   runtime-launches:
     deps:
     - build
     cmds:
-    - python3 scripts/check-runtime-launches.py {{.BUILD_DIR}}/holonight-greeter {{.HOLONIGHT_QT_PREFIX}} --logs {{.BUILD_DIR}}/launch-build
+    - python3 scripts/check-runtime-launches.py {{.BUILD_DIR}}/holonight-greeter {{.PROVIDER_PREFIX}} --logs {{.BUILD_DIR}}/launch-build
   caret-graphics:
     desc: Compare caret pixels on isolated headless Sway with prepared providers
     cmds:
     - task: build
       vars:
-        PRESET: test
-    - python3 scripts/check-caret-graphics.py build/test/greeter_runtime_tests "{{.HOLONIGHT_QT_PREFIX}}" --logs build/test/caret-graphics
-  tooling:doctor:
-    desc: doctor using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py doctor
-  tooling:refresh:
-    desc: refresh using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py refresh --preset {{default "test" .EDITOR_PRESET}}
-  serena:serve:
-    desc: Start independent Serena server in codex context
-    cmds:
-    - serena start-mcp-server --project "{{.TASKFILE_DIR}}" --context codex
-  serena:index:
-    desc: Explicitly index this module
-    cmds:
-    - serena project index "{{.TASKFILE_DIR}}"
-  deps:
-    desc: deps using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py deps --preset {{.PRESET}}
-  configure-tests:
-    desc: configure using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py configure --preset test
-  configure:release:
-    desc: configure using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py configure --preset release
-  build:release:
-    desc: build using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py build --preset release
-  format:
-    desc: format using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py format
-  format-check:
-    desc: format-check using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py format-check
-  tidy-src:
-    desc: tidy using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py tidy --scope src
-  tidy-tests:
-    desc: tidy using standalone tooling
-    cmds:
-    - python3 tooling/workflow.py tidy --scope tests
+        PRESET: dev
+    - python3 scripts/check-caret-graphics.py build/dev/greeter_runtime_tests "{{.PROVIDER_PREFIX}}" --logs build/dev/caret-graphics
   qml-import-check:
     desc: Check QML runtime import contracts
     cmds:
     - bash scripts/check-runtime-qml-imports.sh .
-  qmltypes-check:
-    desc: Build and verify generated QML metadata
-    cmds:
-    - task: build
-      vars:
-        PRESET: test
-    - python3 tooling/workflow.py qmltypes-check --preset test
   qml-lint:
-    desc: Build and check QML with configured Qt installation
+    desc: qml-lint
+    cmds:
+    - cmake --build build/{{.PRESET}} --target qml-lint
+  check:
+    desc: Authoritative container acceptance
+    cmds:
+    - python3 scripts/ci/container.py check {{.CLI_ARGS}}
+  configure:
+    desc: configure
+    cmds:
+    - cmake --preset {{.PRESET}} {{.CLI_ARGS}}
+  build:
+    desc: build
+    cmds:
+    - cmake --preset {{.PRESET}}
+    - cmake --build --preset {{.PRESET}}
+  test:
+    desc: test
     cmds:
     - task: build
       vars:
-        PRESET: test
-    - cmake --build build/test --target qml-lint
-  tooling:qmlls:
-    desc: Start configured Qt language server with resolved import paths
+        PRESET: dev
+    - dbus-run-session -- ctest --preset dev {{.CLI_ARGS}}
+  configure:release:
+    desc: configure:release
     cmds:
-    - python3 tooling/workflow.py qmlls
-  check:
-    desc: Run build, tests and static checks
+    - cmake --preset release {{.CLI_ARGS}}
+  build:release:
+    desc: build:release
     cmds:
-    - task: build
-    - task: test
-    - task: format-check
-    - task: lint
+    - cmake --preset release
+    - cmake --build --preset release
+  format:
+    desc: Format with the pinned container tools
+    cmds:
+    - python3 scripts/ci/container.py format
+  format-check:
+    desc: format-check
+    cmds:
+    - python3 scripts/quality.py format-check
+  tidy:
+    desc: tidy
+    cmds:
+    - python3 scripts/quality.py tidy --build build/{{.PRESET}}
+  check:integration:
+    desc: Container acceptance plus Release staging and runtime checks
+    cmds:
+    - python3 scripts/ci/container.py integration {{.CLI_ARGS}}
+  qmltypes-check:
+    desc: qmltypes-check
+    cmds:
+    - python3 scripts/quality.py qmltypes --build build/{{.PRESET}} --module Holonight.Greeter
+  configure:system:
+    desc: Configure the production greeter
+    cmds:
+    - cmake --preset release

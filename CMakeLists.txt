@@ -1,6 +1,23 @@
 cmake_minimum_required(VERSION 3.25)
 project(holonight-greeter VERSION 0.1.0 LANGUAGES CXX)
 
+# Installed QML providers follow the standard CMake prefix search path.
+set(_qml_prefixes ${CMAKE_PREFIX_PATH})
+if(DEFINED ENV{CMAKE_PREFIX_PATH})
+  string(REPLACE ":" ";" _prefix_environment "$ENV{CMAKE_PREFIX_PATH}")
+  list(APPEND _qml_prefixes ${_prefix_environment})
+endif()
+foreach(_prefix IN LISTS _qml_prefixes)
+  if(IS_DIRECTORY "${_prefix}/lib/qt6/qml")
+    list(APPEND QML_IMPORT_PATH "${_prefix}/lib/qt6/qml")
+  endif()
+endforeach()
+if(DEFINED ENV{QML_IMPORT_PATH})
+  string(REPLACE ":" ";" _qml_environment "$ENV{QML_IMPORT_PATH}")
+  list(APPEND QML_IMPORT_PATH ${_qml_environment})
+endif()
+list(REMOVE_DUPLICATES QML_IMPORT_PATH)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -11,7 +28,6 @@ install(FILES LICENSE ASSET_PROVENANCE.md LICENSES/GPL-3.0-or-later.txt
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/${PROJECT_NAME}")
 
 option(BUILD_TESTING "Build tests" ON)
-include("${CMAKE_CURRENT_SOURCE_DIR}/tooling/dependencies.cmake")
 find_package(Qt6 6.11 REQUIRED COMPONENTS Core Gui Quick Qml Network DBus)
 qt_policy(SET QTP0001 NEW)
 qt_policy(SET QTP0004 NEW)

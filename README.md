@@ -1,5 +1,7 @@
 # HoloNight Greeter
 
+For current build, test, container acceptance and provider workflows, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
 A Qt 6 / QML [greetd](https://sr.ht/~kennylevinsen/greetd/) greeter for the HoloNight desktop.
 
 ![HoloNight Greeter](docs/images/greeter.png)
@@ -26,31 +28,7 @@ fullscreen greeter surface to its intended Wayland output.
 
 ## Build and test
 
-Run `task deps` explicitly to prepare supplied local Config then Qt sources into
-`build/deps/prefix`. Configure, build and test only validate prepared inputs; they never acquire sources.
-Qt Controls and Wayland are enabled; provider tests, demo and gallery are disabled:
-
-```sh
-task deps PRESET=test
-task build PRESET=test
-task test
-task lint
-task tidy
-task runtime-launches
-```
-
-Override `HOLONIGHT_CONFIG_SOURCE` and `HOLONIGHT_QT_SOURCE` when the dependency
-checkouts are elsewhere. The accepted provider revisions are Config
-`0ccd25f323662f50a47bb048be636160f2b7c135` and Qt `7c3ce074a8c2e02e4ee8cad8cd19eb8627aa4f68`.
-`HOLONIGHT_DEPENDENCY_PREFIX` selects installed internal providers;
-`HOLONIGHT_EXTERNAL_PREFIX` separately selects installed external packages.
-For already installed dependencies, direct CMake configuration remains supported:
-
-```sh
-cmake -S . -B build/test -G Ninja -DBUILD_TESTING=ON -DHOLONIGHT_DEPENDENCY_PREFIX=/path/to/prefix
-cmake --build build/test
-ctest --test-dir build/test --output-on-failure
-```
+See [DEVELOPMENT.md](DEVELOPMENT.md) for current native and container commands.
 
 Application QML uses `QtQuick.Controls as Controls`. Each graphical executable
 embeds a Holonight style default; `QT_QUICK_CONTROLS_STYLE=Fusion`, `-style Fusion`,
@@ -64,10 +42,10 @@ Run the greeter as a regular window from an existing graphical session:
 ```sh
 # For the privately staged Task build:
 export LD_LIBRARY_PATH="$PWD/build/deps/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-./build/debug/holonight-greeter --demo
-./build/debug/holonight-greeter --demo-scenario wrong-password
-./build/debug/holonight-greeter --demo-scenario otp
-./build/debug/holonight-greeter --demo-scenario fingerprint
+./build/dev/holonight-greeter --demo
+./build/dev/holonight-greeter --demo-scenario wrong-password
+./build/dev/holonight-greeter --demo-scenario otp
+./build/dev/holonight-greeter --demo-scenario fingerprint
 ```
 
 Supported scenarios are `default`, `wrong-password`, `otp`, and `fingerprint`; specifying a scenario implies
@@ -133,28 +111,3 @@ the production login path.
 ## License
 
 GPL-3.0-or-later — see [LICENSE](LICENSE).
-
-## Standalone developer tooling
-
-See [tooling/README.md](tooling/README.md) for presets, local dependency overrides, editor refresh,
-`task tooling:doctor`, and the independent Serena project.
-
-## Local CI rehearsal
-
-Run `task ci:prepare` explicitly to pull the qualified full Arch image and pinned REUSE image,
-clone exact provider commits, and run `task deps`. For local source transport use
-`python3 scripts/ci/run.py --prepare --provider-source-root ..`; dirty provider working trees
-are ignored in favor of the exact committed revisions. Then run `task ci`.
-
-Build-test, Release/tests-OFF staging, strict static checks and licensing run with
-`--pull=never --network=none`, caller UID/GID, read-only inputs and private runtime directories.
-Preparation records image identities, provider revisions, environment versions and content/mode hashes;
-stale or tampered preparation is rejected. Compatible provider artifacts can be reused after validation.
-Build-test preserves eight CTest registrations, four startup selectors and the four headless Sway caret
-style/scale cases. Release checks four installed selectors and rejects build/preparation path leakage.
-Hyprland parser checks retain their existing skip when unavailable; native compositor verification is EDM-022.
-
-Logs and structured hashes are under ignored `build/ci/`. Each lane builds a fresh application tree.
-Tracked edits and non-ignored new files enter the isolated snapshot; add reported inputs before committing.
-Host installation, live greetd/VT testing, desktop automation, Debian qualification, publication and pin updates
-are outside this acceptance.
