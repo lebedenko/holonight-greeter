@@ -132,6 +132,20 @@ class RuntimeControls : public testing::Test {
     });
     QCoreApplication::processEvents();
   }
+  void captureDemo(const QString& profile) {
+    const auto directory = qEnvironmentVariable("GREETER_SELECTOR_ARTIFACTS");
+    if (directory.isEmpty()) {
+      return;
+    }
+    ASSERT_TRUE(QDir{}.mkpath(directory));
+    for (double scale : {1.0, 1.25}) {
+      window->resize(qRound(1672 * scale), qRound(941 * scale));
+      QTest::qWait(100);
+      const auto image = captureWindow();
+      ASSERT_FALSE(image.isNull());
+      ASSERT_TRUE(image.save(directory + "/" + profile + "-" + QString::number(scale) + ".png"));
+    }
+  }
   void checkPasswordCaret(bool recordedOnly, bool candidate = false);
   [[nodiscard]] QImage captureWindow() const;
   void checkCaretPixels(QQuickItem* field, const char* phase, bool acceptance, int& captureIndex);
@@ -235,6 +249,7 @@ TEST_F(RuntimeControls, SingleAccountAndManualCycles) {
 
 TEST_F(RuntimeControls, ManualUsernameCycleAndPromptFocus) {
   load(true);
+  EXPECT_FALSE(object("singleAccountLabel")->property("visible").toBool());
   checkCycle({"usernameField", "sessionSelector", "keyboardSelector"});
   object("usernameField")->setProperty("text", "alice");
   checkCycle({
@@ -303,7 +318,13 @@ TEST_F(RuntimeControls, RevealCancellationHidingDisablingAndDeactivation) {
 
 TEST_F(RuntimeControls, AccountRowsFallbackLongNamesAndSelectionFocus) {
   accounts.records[0].display_name = QString(160, 'A');
+  QImage avatar(16, 16, QImage::Format_RGB32);
+  avatar.fill(Qt::cyan);
+  const auto avatarPath = temporary.filePath("alice.png");
+  ASSERT_TRUE(avatar.save(avatarPath));
+  accounts.records[0].avatar = avatarPath;
   load();
+  EXPECT_EQ(object("userAvatar")->property("source").toUrl(), QUrl("file:" + avatarPath));
   transport.connectNow();
   prompt();
   auto* selector = object("userSelector");
@@ -325,6 +346,7 @@ TEST_F(RuntimeControls, AccountRowsFallbackLongNamesAndSelectionFocus) {
   EXPECT_LE(row->property("width").toDouble(), selector->property("width").toDouble());
   evaluate(selector, "popup.close()");
   activate("userSelector", 1);
+  EXPECT_TRUE(object("userAvatar")->property("source").toUrl().isEmpty());
   transport.reply({{"type", "success"}});
   transport.connectNow();
   EXPECT_EQ(transport.sent.last().value("username"), "bob");
@@ -341,21 +363,66 @@ TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
   evaluate(footer, "down = true");
   EXPECT_EQ(evaluate(footer, "background.color").value<QColor>().alpha(), 0);
   EXPECT_EQ(evaluate(footer, "background.border.width").toInt(), 0);
-  EXPECT_EQ(evaluate(footer, "contentItem.children[0].color"), evaluate(footer, "contentItem.children[1].color"));
-  EXPECT_EQ(evaluate(footer, "indicator.color"), evaluate(footer, "contentItem.children[1].color"));
+  EXPECT_EQ(evaluate(footer, "contentItem.children[0].resolvedColor"),
+            evaluate(footer, "contentItem.children[1].color"));
+  EXPECT_EQ(evaluate(footer, "indicator.resolvedColor"), evaluate(footer, "contentItem.children[1].color"));
   power.capabilitiesNow(true, true);
   auto* reboot = object("rebootButton");
   auto* poweroff = object("powerButton");
   EXPECT_EQ(reboot->property("width"), poweroff->property("width"));
-  EXPECT_NEAR(evaluate(poweroff, "focusTarget.font.pointSize").toDouble() /
-                  evaluate(reboot, "focusTarget.font.pointSize").toDouble(),
-              1.25, 0.01);
+  EXPECT_EQ(evaluate(poweroff, "focusTarget.contentItem.size").toInt(), 28);
+  EXPECT_EQ(evaluate(reboot, "focusTarget.contentItem.size").toInt(), 28);
   for (auto* action : {reboot, poweroff}) {
     EXPECT_EQ(evaluate(action, "children[0].data[0].fillColor").value<QColor>().alpha(), 0);
     EXPECT_GT(evaluate(action, "children[0].data[0].strokeWidth").toDouble(), 0);
   }
   EXPECT_EQ(power.offs, 0);
   EXPECT_EQ(power.reboots, 0);
+}
+
+TEST_F(RuntimeControls, AccountFeedbackAndContentSizedFooter) {
+  load();
+  auto* account = focusItem("userSelector");
+  EXPECT_EQ(evaluate(account, "background.color").value<QColor>().alpha(), 0);
+  EXPECT_EQ(evaluate(account, "background.border.width").toInt(), 0);
+  account->forceActiveFocus(Qt::TabFocusReason);
+  EXPECT_GT(evaluate(account, "background.border.width").toInt(), 0);
+  evaluate(account, "popup.open()");
+  EXPECT_GT(evaluate(account, "background.border.width").toInt(), 0);
+  evaluate(account, "popup.close()");
+  auto* keyboard = object("keyboardSelector");
+  auto* session = object("sessionSelector");
+  QTest::qWait(30);
+  EXPECT_FALSE(evaluate(keyboard, "contentItem.children[1].truncated").toBool());
+  for (double scale : {0.78, 1.0, 1.25}) {
+    object("loginPanel")->setProperty("scale", scale);
+    keyboard->setProperty("displayText", "US");
+    QTest::qWait(30);
+    const double shortWidth = keyboard->property("width").toDouble();
+    EXPECT_NEAR(shortWidth, keyboard->property("naturalWidth").toDouble(), 1);
+    EXPECT_GT(session->property("width").toDouble(), shortWidth);
+    keyboard->setProperty("displayText", QString(100, 'W'));
+    session->setProperty("displayText", QString(100, 'S'));
+    QTest::qWait(30);
+    EXPECT_GT(keyboard->property("width").toDouble(), shortWidth);
+    EXPECT_TRUE(evaluate(keyboard, "contentItem.children[1].truncated").toBool());
+    EXPECT_TRUE(evaluate(session, "contentItem.children[1].truncated").toBool());
+    EXPECT_GT(session->property("width").toDouble(), 100);
+  }
+}
+
+TEST_F(RuntimeControls, BundledOutlineIconsLoad) {
+  load(false, {}, true, "wrong-password");
+  captureDemo("multiple");
+  auto* icon = object("revealIcon");
+  for (const auto* name :
+       {"user", "eye", "eye-off", "session", "keyboard", "warning", "reboot", "shutdown", "chevron-down"}) {
+    const auto source = QString("qrc:/qt/qml/Holonight/Greeter/qml/icons/%1.svg").arg(name);
+    EXPECT_TRUE(QFile::exists(source.mid(3))) << name;
+    icon->setProperty("source", QUrl(source));
+    ASSERT_TRUE(QTest::qWaitFor([&] { return evaluate(icon, "children[0].status === Image.Ready").toBool(); })) << name;
+    EXPECT_FALSE(icon->property("hasError").toBool()) << name;
+  }
 }
 
 // Blink changes are confined to this test and restored even on assertion
@@ -700,7 +767,7 @@ TEST_F(RuntimeControls, SelectedImplementationsAndCompositePainting) {
   EXPECT_EQ(window->color(), QColor("#050b18"));
   auto* selector = object("sessionSelector");
   EXPECT_EQ(selector->property("iconRole").toString(), "");
-  EXPECT_EQ(evaluate(selector, "contentItem.children[0].text").toString(), QString::fromUtf8("▱"));
+  EXPECT_TRUE(evaluate(selector, "contentItem.children[0].source.toString().endsWith('session.svg')").toBool());
   QFile maps("/proc/self/maps");
   ASSERT_TRUE(maps.open(QIODevice::ReadOnly));
   auto contents = maps.readAll();
@@ -808,12 +875,15 @@ TEST_F(RuntimeControls, InvalidConfigurationDisablesAuthenticationAndSessions) {
 
 TEST_F(RuntimeControls, SingleDemoAccountRemainsVisibleAndSkipsSelectorFocus) {
   load(false, {}, false, "wrong-password");
+  captureDemo("single");
   ASSERT_NE(window, nullptr);
   auto* selector = object("userSelector");
   EXPECT_EQ(selector->property("count").toInt(), 1);
   EXPECT_EQ(selector->property("displayText").toString(), "Alice Morgan");
-  EXPECT_TRUE(selector->property("visible").toBool());
-  EXPECT_FALSE(selector->property("enabled").toBool());
+  EXPECT_FALSE(selector->property("visible").toBool());
+  auto* label = object("singleAccountLabel");
+  EXPECT_TRUE(label->property("visible").toBool());
+  EXPECT_EQ(label->property("text").toString(), "Alice Morgan");
   QCoreApplication::processEvents();
   checkCycle({"responseField", "revealButton", "primaryButton", "sessionSelector", "keyboardSelector", "rebootButton",
               "powerButton"});

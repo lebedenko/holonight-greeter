@@ -7,7 +7,14 @@ import Holonight.Core
 HnIconComboBox {
     id: root
 
-    required property string iconText
+    required property url iconSource
+    readonly property real naturalWidth: leftPadding + 24 + 10 + Math.ceil(labelMetrics.advanceWidth) + rightPadding
+
+    TextMetrics {
+        id: labelMetrics
+        font: root.font
+        text: root.displayText
+    }
 
     iconRole: ""
     delegateHeight: height
@@ -19,10 +26,10 @@ HnIconComboBox {
     contentItem: RowLayout {
         spacing: 10
 
-        Text {
-            text: root.iconText
-            color: root.enabled ? HoloniightPalette.textSecondary : HoloniightPalette.textDisabled
-            font.pointSize: root.iconText === "⌨" ? 16.5 : 20.25
+        HnIcon {
+            source: root.iconSource
+            size: 24
+            iconState: root.enabled ? HnIcon.Normal : HnIcon.Disabled
             Layout.alignment: Qt.AlignVCenter
         }
 
@@ -37,12 +44,12 @@ HnIconComboBox {
         }
     }
 
-    indicator: Text {
+    indicator: HnIcon {
         x: root.width - width - 14
         anchors.verticalCenter: parent.verticalCenter
-        text: "⌄"
-        color: root.enabled ? HoloniightPalette.textSecondary : HoloniightPalette.textDisabled
-        font: root.font
+        source: Qt.resolvedUrl("icons/chevron-down.svg")
+        size: 12
+        iconState: root.enabled ? HnIcon.Normal : HnIcon.Disabled
     }
 
     background: Rectangle {

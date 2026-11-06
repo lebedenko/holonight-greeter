@@ -60,8 +60,9 @@ write, or power-service call is made. For an additional installed development pr
 
 The optional `--demo-users single|multiple` replaces local account discovery with one or three fictional
 accounts (Alice Morgan, Bob Chen, and Charlie Rivera), using the built-in fallback avatar. Fixture accounts
-ignore configured user filters so their count is predictable. One account leaves the name visible with the
-selector disabled; multiple accounts enable the dropdown and account switching. Omit the option to keep
+ignore configured user filters so their count is predictable. One account shows a centered plain name and skips the account selector during keyboard navigation;
+multiple accounts enable a borderless dropdown and account switching. The keyboard selector sizes to its
+current label, leaving the remaining footer width for the session selector. Icons use bundled outline SVGs. Omit the option to keep
 local account discovery. Direct CLI use requires `--demo` or `--demo-scenario`; invalid profiles and use
 outside demo mode are rejected. No system accounts are created or modified.
 

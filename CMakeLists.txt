@@ -74,7 +74,16 @@ target_link_libraries(greeter_core PUBLIC Qt6::Core Qt6::Network Qt6::DBus tomlp
 target_compile_options(greeter_core PRIVATE -Wall -Wextra -Wpedantic)
 
 set(GREETER_QML_FILES qml/Main.qml qml/LoginPanel.qml qml/FooterSelector.qml qml/Background.qml)
-set(GREETER_QML_ASSETS assets/backgrounds/wallpaper.png qml/images/no-avatar.png)
+set(GREETER_QML_ASSETS assets/backgrounds/wallpaper.png qml/images/no-avatar.png
+  qml/icons/user.svg
+  qml/icons/eye.svg
+  qml/icons/eye-off.svg
+  qml/icons/session.svg
+  qml/icons/keyboard.svg
+  qml/icons/warning.svg
+  qml/icons/reboot.svg
+  qml/icons/shutdown.svg
+  qml/icons/chevron-down.svg)
 qt_add_executable(holonight-greeter src/main.cpp)
 qt_add_resources(holonight-greeter controls_config PREFIX "/" FILES qtquickcontrols2.conf)
 target_compile_definitions(holonight-greeter PRIVATE

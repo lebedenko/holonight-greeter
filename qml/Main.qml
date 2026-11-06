@@ -186,7 +186,7 @@ Controls.ApplicationWindow {
             SystemActionButton {
                 id: rebootAction
                 objectName: "rebootButton"
-                symbol: "↻"
+                iconSource: Qt.resolvedUrl("icons/reboot.svg")
                 description: greeterController.canReboot ? qsTr("Reboot") : qsTr("Reboot unavailable")
                 enabled: greeterController.canReboot
                 tabTarget: loginPanel.nextFocus(focusTarget, 1)
@@ -196,8 +196,7 @@ Controls.ApplicationWindow {
             SystemActionButton {
                 id: powerAction
                 objectName: "powerButton"
-                symbol: "⏻"
-                glyphScale: 1.25
+                iconSource: Qt.resolvedUrl("icons/shutdown.svg")
                 description: greeterController.canPowerOff ? qsTr("Shut down") : qsTr("Shutdown unavailable")
                 enabled: greeterController.canPowerOff
                 tabTarget: loginPanel.nextFocus(focusTarget, 1)
@@ -264,9 +263,8 @@ Controls.ApplicationWindow {
 
     component SystemActionButton: Item {
         id: actionFrame
-        required property string symbol
+        required property url iconSource
         required property string description
-        property real glyphScale: 1
         property Item tabTarget
         property Item backtabTarget
         readonly property alias focusTarget: action
@@ -314,8 +312,12 @@ Controls.ApplicationWindow {
             id: action
             anchors.fill: parent
             enabled: actionFrame.enabled
-            text: actionFrame.symbol
-            font.pointSize: 23.25 * root.referenceScale * actionFrame.glyphScale
+            padding: 17 * root.referenceScale
+            contentItem: HnIcon {
+                source: actionFrame.iconSource
+                size: 28
+                iconState: action.enabled ? HnIcon.Normal : HnIcon.Disabled
+            }
             Accessible.name: actionFrame.description
             Controls.ToolTip.visible: hovered
             Controls.ToolTip.text: actionFrame.description

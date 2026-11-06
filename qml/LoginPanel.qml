@@ -97,7 +97,7 @@ Item {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: 250
             Layout.preferredHeight: 48
-            visible: !greeterController.manualMode
+            visible: !greeterController.manualMode && count > 1
             iconRole: ""
             delegateHeight: 56
             model: greeterController.users
@@ -112,6 +112,22 @@ Item {
                 font: userSelector.font
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
+            }
+            indicator: HnIcon {
+                x: userSelector.width - width - 14
+                anchors.verticalCenter: parent.verticalCenter
+                source: Qt.resolvedUrl("icons/chevron-down.svg")
+                size: 12
+                iconState: userSelector.enabled ? HnIcon.Normal : HnIcon.Disabled
+            }
+            background: Rectangle {
+                radius: HnAppearance.roundedRadius(HnSurfaceRole.Control, width, height, HnAppearance.revision)
+                color: userSelector.enabled && userSelector.down ? HoloniightPalette.surfaceElevated
+                       : userSelector.enabled && userSelector.HnInputInteraction.hoverAllowed && userSelector.hovered
+                         ? HoloniightPalette.surfaceHover : "transparent"
+                border.width: userSelector.enabled && (userSelector.visualFocus || userSelector.popup.visible)
+                              ? HnMetrics.focusBorderWidth : 0
+                border.color: HoloniightPalette.borderFocus
             }
             delegate: Controls.ItemDelegate {
                 id: accountRow
@@ -145,6 +161,21 @@ Item {
             onActivated: greeterController.begin(currentValue)
             KeyNavigation.tab: panel.nextFocus(userSelector, 1)
             KeyNavigation.backtab: panel.nextFocus(userSelector, -1)
+        }
+
+        Controls.Label {
+            objectName: "singleAccountLabel"
+            visible: !greeterController.manualMode && userSelector.count === 1
+            Layout.topMargin: 16
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: 250
+            Layout.preferredHeight: 48
+            text: userSelector.displayText
+            font: userSelector.font
+            color: HoloniightPalette.textPrimary
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            elide: Text.ElideRight
         }
 
         Controls.TextField {
@@ -212,13 +243,13 @@ Item {
                 KeyNavigation.backtab: panel.nextFocus(response, -1)
                 KeyNavigation.priority: KeyNavigation.BeforeItem
             }
-            Controls.Label {
+            HnIcon {
                 anchors.left: parent.left
                 anchors.leftMargin: 17
                 anchors.verticalCenter: parent.verticalCenter
-                text: "♙"
-                color: "#83a8d3"
-                font.pointSize: 18.75
+                source: Qt.resolvedUrl("icons/user.svg")
+                size: 24
+                normalColor: "#83a8d3"
             }
             Controls.Button {
                 id: reveal
@@ -230,7 +261,15 @@ Item {
                 width: 44
                 height: 44
                 property bool held: false
-                text: held ? "◉" : "◎"
+                contentItem: HnIcon {
+                    objectName: "revealIcon"
+                    source: Qt.resolvedUrl(reveal.held ? "icons/eye-off.svg" : "icons/eye.svg")
+                    size: 24
+                    width: 24
+                    height: 24
+                    iconState: reveal.enabled ? HnIcon.Normal : HnIcon.Disabled
+                }
+                padding: 10
                 onPressed: held = true
                 onReleased: held = false
                 onCanceled: held = false
@@ -279,15 +318,25 @@ Item {
             }
         }
 
-        Controls.Label {
+        RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 28
             Layout.topMargin: 12
-            text: response.visible && greeterController.secret && panel.capsLockOn
-                  ? "⚠  Caps Lock is on" : ""
-            color: "#bb7cec"
-            font.pointSize: 12
-            elide: Text.ElideRight
+            spacing: 8
+            HnIcon {
+                visible: response.visible && greeterController.secret && panel.capsLockOn
+                source: Qt.resolvedUrl("icons/warning.svg")
+                size: 24
+                normalColor: "#bb7cec"
+            }
+            Controls.Label {
+                Layout.fillWidth: true
+                text: response.visible && greeterController.secret && panel.capsLockOn
+                      ? "Caps Lock is on" : ""
+                color: "#bb7cec"
+                font.pointSize: 12
+                elide: Text.ElideRight
+            }
         }
 
         Controls.Label {
@@ -361,7 +410,7 @@ Item {
                     objectName: "sessionSelector"
                     anchors.fill: parent
                     anchors.margins: 5
-                    iconText: "▱"
+                    iconSource: Qt.resolvedUrl("icons/session.svg")
                     model: greeterController.sessions
                     textRole: "name"
                     valueRole: "id"
@@ -389,16 +438,16 @@ Item {
             }
 
             Item {
-                Layout.fillWidth: true
                 Layout.preferredHeight: 66
-                Layout.preferredWidth: 1
+                Layout.preferredWidth: Math.min(keyboardSelector.naturalWidth + 10, footerRow.width * 0.55)
+                Layout.minimumWidth: 88
 
                 FooterSelector {
                     id: keyboardSelector
                     objectName: "keyboardSelector"
                     anchors.fill: parent
                     anchors.margins: 5
-                    iconText: "⌨"
+                    iconSource: Qt.resolvedUrl("icons/keyboard.svg")
                     model: greeterCompositor.layouts
                     textRole: "label"
                     valueRole: "id"
