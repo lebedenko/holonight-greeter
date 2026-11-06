@@ -434,6 +434,7 @@ Item {
         Controls.Label {
             Layout.fillWidth: true
             Layout.topMargin: 18
+            objectName: "loginStatus"
             text: greeterController.status.length > 0 ? greeterController.status
                   : greeterController.state === "connecting" ? "Connecting to authentication service"
                   : greeterController.state === "waiting" ? "Waiting for authentication"

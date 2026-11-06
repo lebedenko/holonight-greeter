@@ -23,7 +23,7 @@ class CompositorAdapter final : public QObject {
   Q_PROPERTY(QString keyboardLayoutId READ keyboardLayoutId NOTIFY layoutChanged)
   Q_PROPERTY(QVariantList layouts READ layouts CONSTANT)
  public:
-  explicit CompositorAdapter(Config config, QObject* parent = nullptr);
+  explicit CompositorAdapter(Config config, bool demo, QObject* parent = nullptr);
   [[nodiscard]] QString backendName() const { return backend_; }
   [[nodiscard]] bool canCycleLayout() const;
   [[nodiscard]] QString keyboardLabel() const;
@@ -35,6 +35,7 @@ class CompositorAdapter final : public QObject {
   void layoutChanged();
 
  private:
+  bool demo_;
   QString backend_;
   QString legacyLabel_;
   QList<KeyboardLayout> layouts_;

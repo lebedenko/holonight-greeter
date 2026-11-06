@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QObject>
 
+#include <cstdint>
+
 namespace Greeter {
 struct User {
   QString username;
@@ -74,6 +76,17 @@ class IFileSystem {
   virtual QList<Session> sessions(const QStringList& directories, const QStringList& include,
                                   const QStringList& exclude) = 0;
   virtual bool save(const QString& path, const QString& user, const QString& session, bool manual, QString* error) = 0;
+};
+
+// Fixed, in-memory accounts for explicitly requested visual demos.
+class DemoAccountSource final : public IAccountSource {
+ public:
+  enum class Profile : std::uint8_t { Single, Multiple };
+  explicit DemoAccountSource(Profile profile) : profile_(profile) {}
+  QList<User> users(const QStringList& include, int min_uid, int max_uid, const QStringList& exclude) override;
+
+ private:
+  Profile profile_;
 };
 
 class SystemAccountSource final : public IAccountSource {

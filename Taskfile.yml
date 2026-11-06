@@ -75,6 +75,11 @@ tasks:
     cmds:
     - cmake --preset {{.PRESET}}
     - cmake --build --preset {{.PRESET}}
+  demo:
+    desc: Build and open a safe windowed demo with simulated login failures
+    cmds:
+    - task: build
+    - build/{{.PRESET}}/holonight-greeter --demo-scenario wrong-password {{.CLI_ARGS}}
   test:
     desc: test
     cmds:

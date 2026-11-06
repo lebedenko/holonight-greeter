@@ -37,7 +37,7 @@ bool hasOrigin(QObject* object, const QString& suffix) {
 
 class RuntimeControls : public testing::Test {
  protected:
-  void load(bool manual = false, const QString& error = {}, bool multiple = true) {
+  void load(bool manual = false, const QString& error = {}, bool multiple = true, const QString& scenario = {}) {
     config.user_mode = manual ? Greeter::Config::UserMode::Manual : Greeter::Config::UserMode::List;
     config.keyboard_layouts = {
         {.id = "us", .layout = "us", .variant = {}, .label = "English"},
@@ -53,9 +53,14 @@ class RuntimeControls : public testing::Test {
           .command = {"fake-session"},
       };
     }
-    controller = std::make_unique<Greeter::Controller>(false, QString{}, config, temporary.filePath("state.json"),
-                                                       &transport, &accounts, &power, &files);
-    compositor = std::make_unique<Greeter::CompositorAdapter>(config);
+    Greeter::DemoAccountSource demoAccounts(multiple ? Greeter::DemoAccountSource::Profile::Multiple
+                                                     : Greeter::DemoAccountSource::Profile::Single);
+    Greeter::IAccountSource* accountSource =
+        scenario.isEmpty() ? static_cast<Greeter::IAccountSource*>(&accounts) : &demoAccounts;
+    controller =
+        std::make_unique<Greeter::Controller>(!scenario.isEmpty(), scenario, config, temporary.filePath("state.json"),
+                                              &transport, accountSource, &power, &files);
+    compositor = std::make_unique<Greeter::CompositorAdapter>(config, !scenario.isEmpty());
     engine = std::make_unique<QQmlApplicationEngine>();
     engine->addImportPath(HOLONIGHT_QML_IMPORT_PATH);
     QObject::connect(engine.get(), &QQmlEngine::warnings, engine.get(), [this](const QList<QQmlError>& errors) {
@@ -799,6 +804,76 @@ TEST_F(RuntimeControls, InvalidConfigurationDisablesAuthenticationAndSessions) {
   EXPECT_FALSE(object("primaryButton")->property("enabled").toBool());
   EXPECT_FALSE(object("sessionSelector")->property("enabled").toBool());
   EXPECT_TRUE(transport.sent.isEmpty());
+}
+
+TEST_F(RuntimeControls, SingleDemoAccountRemainsVisibleAndSkipsSelectorFocus) {
+  load(false, {}, false, "wrong-password");
+  ASSERT_NE(window, nullptr);
+  auto* selector = object("userSelector");
+  EXPECT_EQ(selector->property("count").toInt(), 1);
+  EXPECT_EQ(selector->property("displayText").toString(), "Alice Morgan");
+  EXPECT_TRUE(selector->property("visible").toBool());
+  EXPECT_FALSE(selector->property("enabled").toBool());
+  QCoreApplication::processEvents();
+  checkCycle({"responseField", "revealButton", "primaryButton", "sessionSelector", "keyboardSelector", "rebootButton",
+              "powerButton"});
+  controller->respond("wrong");
+  EXPECT_EQ(controller->status(), "Authentication failed");
+  EXPECT_EQ(accounts.calls, 0);
+  EXPECT_TRUE(transport.path.isEmpty());
+  EXPECT_TRUE(transport.sent.isEmpty());
+  EXPECT_EQ(transport.cancellations, 0);
+  EXPECT_EQ(transport.disconnections, 0);
+  EXPECT_EQ(power.queries, 0);
+  EXPECT_EQ(power.offs, 0);
+  EXPECT_EQ(power.reboots, 0);
+  EXPECT_EQ(files.saveCalls, 0);
+}
+
+TEST_F(RuntimeControls, DemoRendersRepeatedFailuresAndSimulatesActions) {
+  load(false, {}, true, "wrong-password");
+  ASSERT_NE(window, nullptr);
+  ASSERT_TRUE(QTest::qWaitForWindowExposed(window));
+  EXPECT_EQ(object("userSelector")->property("count").toInt(), 3);
+  EXPECT_TRUE(object("userSelector")->property("enabled").toBool());
+  checkCycle({"userSelector", "responseField", "revealButton", "primaryButton", "sessionSelector", "keyboardSelector",
+              "rebootButton", "powerButton"});
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    object("responseField")->setProperty("text", "discard on user switch");
+    activate("userSelector", (attempt + 1) % 3);
+    EXPECT_EQ(object("userSelector")->property("currentValue").toString(),
+              QStringList({"bob", "charlie", "alice"})[attempt]);
+    EXPECT_EQ(controller->state(), "input-prompt");
+    EXPECT_TRUE(controller->status().isEmpty());
+    EXPECT_TRUE(object("responseField")->property("text").toString().isEmpty());
+    object("responseField")->setProperty("text", "wrong");
+    QMetaObject::invokeMethod(object("primaryButton"), "clicked");
+    QCoreApplication::processEvents();
+    EXPECT_EQ(object("loginStatus")->property("text").toString(), "Authentication failed");
+    EXPECT_TRUE(object("loginStatus")->property("visible").toBool());
+    EXPECT_EQ(object("loginStatus")->property("color").value<QColor>(), QColor("#ff89a2"));
+    EXPECT_TRUE(object("primaryButton")->property("enabled").toBool());
+    EXPECT_TRUE(object("responseField")->property("text").toString().isEmpty());
+  }
+  EXPECT_FALSE(window->grabWindow().isNull());
+  for (const auto* button : {"rebootButton", "powerButton"}) {
+    QMetaObject::invokeMethod(object(button), "clicked");
+    EXPECT_FALSE(window->property("pendingPowerAction").toString().isEmpty());
+    QMetaObject::invokeMethod(window, "confirmPowerAction");
+    const QString expected = QString::fromLatin1(button) == "rebootButton" ? "Reboot simulated in demo mode"
+                                                                           : "Shutdown simulated in demo mode";
+    ASSERT_TRUE(QTest::qWaitFor([&] { return controller->status() == expected; }));
+  }
+  activate("keyboardSelector", 1);
+  EXPECT_EQ(compositor->keyboardLayoutId(), "de");
+  EXPECT_TRUE(transport.path.isEmpty());
+  EXPECT_TRUE(transport.sent.isEmpty());
+  EXPECT_EQ(transport.cancellations, 0);
+  EXPECT_EQ(transport.disconnections, 0);
+  EXPECT_EQ(power.queries, 0);
+  EXPECT_EQ(power.offs, 0);
+  EXPECT_EQ(power.reboots, 0);
+  EXPECT_EQ(files.saveCalls, 0);
 }
 
 TEST_F(RuntimeControls, PowerConfirmationUsesOnlyFakeService) {

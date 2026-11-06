@@ -29,6 +29,7 @@ int main(int argc, char** argv) {
   parser.addOption({"state", "State file", "path", "/var/lib/holonight-greeter/state.json"});
   parser.addOption({"demo", "Run windowed with simulated authentication and actions"});
   parser.addOption({"demo-scenario", "Demo scenario", "name", "default"});
+  parser.addOption({"demo-users", "Demo accounts: single or multiple (requires demo mode)", "profile"});
   parser.process(app);
   const QString scenario = parser.value("demo-scenario");
   if (!QStringList{"default", "wrong-password", "otp", "fingerprint"}.contains(scenario)) {
@@ -36,17 +37,28 @@ int main(int argc, char** argv) {
   }
 
   const bool demo = parser.isSet("demo") || parser.isSet("demo-scenario");
+  const QString demoUsers = parser.value("demo-users");
+  if (parser.isSet("demo-users") && (!demo || !QStringList{"single", "multiple"}.contains(demoUsers))) {
+    parser.showHelp(2);
+  }
   qCInfo(greeterLifecycle) << "configuration-loading" << (demo ? "demo" : "production");
   const auto config = Greeter::loadConfig(parser.value("config"));
   qCInfo(greeterLifecycle) << "configuration-loaded" << (config.valid() ? "valid" : "invalid")
                            << (config.warning.isEmpty() ? "no-warning" : "warning");
   Greeter::GreetdClient transport;
-  Greeter::SystemAccountSource accounts;
+  std::unique_ptr<Greeter::IAccountSource> accounts;
+  if (parser.isSet("demo-users")) {
+    const auto profile = demoUsers == "single" ? Greeter::DemoAccountSource::Profile::Single
+                                               : Greeter::DemoAccountSource::Profile::Multiple;
+    accounts = std::make_unique<Greeter::DemoAccountSource>(profile);
+  } else {
+    accounts = std::make_unique<Greeter::SystemAccountSource>();
+  }
   Greeter::LogindPowerService power;
   Greeter::SystemFileSystem files;
-  Greeter::CompositorAdapter compositor(config.value);
-  Greeter::Controller controller(demo, scenario, config.value, parser.value("state"), &transport, &accounts, &power,
-                                 &files);
+  Greeter::CompositorAdapter compositor(config.value, demo);
+  Greeter::Controller controller(demo, scenario, config.value, parser.value("state"), &transport, accounts.get(),
+                                 &power, &files);
   QObject::connect(&controller, &Greeter::Controller::sessionStarted, &app, [] {
     qCInfo(greeterLifecycle) << "session-started";
     QCoreApplication::quit();

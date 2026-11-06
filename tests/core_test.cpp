@@ -204,7 +204,7 @@ TEST(CompositorAdapter, SelectsConfiguredLayoutByIdAfterSuccessfulIpc) {
       {.id = "us", .layout = "us", .variant = "", .label = "EN"},
       {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
   };
-  Greeter::CompositorAdapter adapter(config);
+  Greeter::CompositorAdapter adapter(config, false);
   EXPECT_EQ(adapter.keyboardLayoutId(), "us");
   EXPECT_TRUE(adapter.selectLayout("ua"));
   EXPECT_EQ(adapter.keyboardLayoutId(), "ua");
@@ -221,12 +221,12 @@ TEST(CompositorAdapter, PreservesLayoutForInvalidUnsupportedAndFailedSelection) 
       {.id = "us", .layout = "us", .variant = "", .label = "EN"},
       {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
   };
-  Greeter::CompositorAdapter unsupported(config);
+  Greeter::CompositorAdapter unsupported(config, false);
   EXPECT_FALSE(unsupported.selectLayout("ua"));
   EXPECT_EQ(unsupported.keyboardLayoutId(), "us");
 
   config.compositor_backend = "hyprland";
-  Greeter::CompositorAdapter invalid(config);
+  Greeter::CompositorAdapter invalid(config, false);
   EXPECT_FALSE(invalid.selectLayout("missing"));
   EXPECT_EQ(invalid.keyboardLayoutId(), "us");
 
@@ -240,11 +240,57 @@ TEST(CompositorAdapter, PreservesLayoutForInvalidUnsupportedAndFailedSelection) 
                                     QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
   const QByteArray oldPath = qgetenv("PATH");
   qputenv("PATH", temporary.path().toLocal8Bit() + ':' + oldPath);
-  Greeter::CompositorAdapter failed(config);
+  Greeter::CompositorAdapter failed(config, false);
   EXPECT_FALSE(failed.selectLayout("ua"));
   EXPECT_EQ(failed.keyboardLayoutId(), "us");
   qputenv("PATH", oldPath);
 }
+TEST(CompositorAdapter, DemoSelectsAndCyclesWithoutExternalCommands) {
+  QTemporaryDir temporary;
+  ASSERT_TRUE(temporary.isValid());
+  QFile script(temporary.filePath("hyprctl"));
+  ASSERT_TRUE(script.open(QIODevice::WriteOnly));
+  script.write("#!/bin/sh\nprintf called > \"$0.called\"\nexit 0\n");
+  script.close();
+  ASSERT_TRUE(script.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
+  const auto oldPath = qgetenv("PATH");
+  const auto oldBackend = qgetenv("HOLONIGHT_GREETER_BACKEND");
+  const auto restore = qScopeGuard([&] {
+    qputenv("PATH", oldPath);
+    if (oldBackend.isNull()) {
+      qunsetenv("HOLONIGHT_GREETER_BACKEND");
+    } else {
+      qputenv("HOLONIGHT_GREETER_BACKEND", oldBackend);
+    }
+  });
+  qputenv("PATH", temporary.path().toUtf8());
+  qunsetenv("HOLONIGHT_GREETER_BACKEND");
+  for (const QString& backend : {QString("hyprland"), QString("cage")}) {
+    Greeter::Config config;
+    config.compositor_backend = backend;
+    config.keyboard_default = "ua";
+    config.keyboard_layouts = {
+        {.id = "us", .layout = "us", .variant = "", .label = "EN"},
+        {.id = "ua", .layout = "ua", .variant = "", .label = "UA"},
+    };
+    Greeter::CompositorAdapter adapter(config, true);
+    QSignalSpy changed(&adapter, &Greeter::CompositorAdapter::layoutChanged);
+    EXPECT_EQ(adapter.layouts().size(), 2);
+    EXPECT_EQ(adapter.keyboardLayoutId(), "ua");
+    EXPECT_TRUE(adapter.canCycleLayout());
+    EXPECT_TRUE(adapter.cycleLayout());
+    EXPECT_EQ(adapter.keyboardLayoutId(), "us");
+    EXPECT_TRUE(adapter.selectLayout("ua"));
+    EXPECT_EQ(adapter.keyboardLabel(), "UA");
+    EXPECT_TRUE(adapter.selectLayout("ua"));
+    EXPECT_FALSE(adapter.selectLayout("missing"));
+    EXPECT_FALSE(adapter.selectLayout(""));
+    EXPECT_EQ(adapter.keyboardLayoutId(), "ua");
+    EXPECT_EQ(changed.count(), 2);
+  }
+  EXPECT_FALSE(QFile::exists(script.fileName() + ".called"));
+}
+
 TEST(SessionLauncher, ConstructsOnlyFixedCageArguments) {
   const auto command = Greeter::cageCommand("/usr/bin/holonight-greeter", "/etc/holonight/greeter.toml");
   EXPECT_EQ(command.program, "dbus-run-session");
@@ -856,6 +902,25 @@ TEST(Demo, WrongPasswordImmediatelyRefreshesPasswordPrompt) {
   controller.respond("wrong");
   EXPECT_EQ(controller.state(), "input-prompt");
   EXPECT_EQ(controller.status(), "Authentication failed");
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    controller.respond("wrong again");
+    EXPECT_EQ(controller.state(), "input-prompt");
+    EXPECT_EQ(controller.status(), "Authentication failed");
+  }
+  controller.requestPowerOff(false);
+  EXPECT_EQ(controller.status(), "Authentication failed");
+  controller.requestPowerOff(true);
+  EXPECT_EQ(controller.status(), "Shutdown simulated in demo mode");
+  controller.requestReboot(true);
+  EXPECT_EQ(controller.status(), "Reboot simulated in demo mode");
+  EXPECT_TRUE(transport.path.isEmpty());
+  EXPECT_TRUE(transport.sent.isEmpty());
+  EXPECT_EQ(transport.cancellations, 0);
+  EXPECT_EQ(transport.disconnections, 0);
+  EXPECT_EQ(power.queries, 0);
+  EXPECT_EQ(power.offs, 0);
+  EXPECT_EQ(power.reboots, 0);
+  EXPECT_EQ(files.saveCalls, 0);
 }
 
 TEST(Demo, OtpTransitionsFromPasswordToVisibleCode) {
@@ -953,12 +1018,52 @@ TEST(GreetdTransport, RejectsOversizedAndMalformedFrames) {
   EXPECT_TRUE(failed.at(0).at(0).toString().contains("frame length"));
 }
 
+TEST(DemoAccounts, ProfilesIgnoreHostFiltersAndReturnStableFictionalAccounts) {
+  for (const auto profile :
+       {Greeter::DemoAccountSource::Profile::Single, Greeter::DemoAccountSource::Profile::Multiple}) {
+    Greeter::DemoAccountSource accounts(profile);
+    const auto records = accounts.users({"nonexistent"}, 5000, 6000, {"alice", "bob", "charlie"});
+    ASSERT_EQ(records.size(), profile == Greeter::DemoAccountSource::Profile::Single ? 1 : 3);
+    EXPECT_EQ(records.first().username, "alice");
+    EXPECT_EQ(records.first().display_name, "Alice Morgan");
+    if (records.size() == 3) {
+      EXPECT_EQ(records[1].username, "bob");
+      EXPECT_EQ(records[1].display_name, "Bob Chen");
+      EXPECT_EQ(records[2].username, "charlie");
+      EXPECT_EQ(records[2].display_name, "Charlie Rivera");
+    }
+    for (const auto& user : records) {
+      EXPECT_TRUE(user.avatar.isEmpty());
+    }
+  }
+}
+
+TEST(DemoCli, RejectsInvalidProfilesAndFixturesOutsideDemoMode) {
+  const QList<QStringList> arguments{
+      {"--demo-users", "single"},     {"--demo-users", "multiple"}, {"--demo", "--demo-users", "unknown"},
+      {"--demo", "--demo-users", ""}, {"--demo", "--demo-users"},
+  };
+  for (const auto& commandArguments : arguments) {
+    SCOPED_TRACE(commandArguments.join(' ').toStdString());
+    QProcess process;
+    auto environment = QProcessEnvironment::systemEnvironment();
+    environment.insert("QT_QPA_PLATFORM", "offscreen");
+    process.setProcessEnvironment(environment);
+    process.start(GREETER_EXECUTABLE_PATH, commandArguments);
+    ASSERT_TRUE(process.waitForFinished(3000));
+    EXPECT_EQ(process.exitStatus(), QProcess::NormalExit);
+    EXPECT_NE(process.exitCode(), 0);
+  }
+}
+
 TEST(DemoCli, StartsDocumentedCommandsOffscreen) {
   const QList<QStringList> arguments{
       {"--demo"},
       {"--demo-scenario", "wrong-password"},
       {"--demo-scenario", "otp"},
       {"--demo-scenario", "fingerprint"},
+      {"--demo", "--demo-users", "single"},
+      {"--demo-scenario", "wrong-password", "--demo-users", "multiple"},
   };
   for (const auto& commandArguments : arguments) {
     QProcess process;

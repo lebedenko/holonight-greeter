@@ -97,6 +97,16 @@ void populateCachedAccounts(QHash<QString, Greeter::User>& cached, QHash<QString
 }  // namespace
 
 namespace Greeter {
+QList<User> DemoAccountSource::users([[maybe_unused]] const QStringList& include, [[maybe_unused]] int min_uid,
+                                     [[maybe_unused]] int max_uid, [[maybe_unused]] const QStringList& exclude) {
+  QList<User> result{{.username = "alice", .display_name = "Alice Morgan", .avatar = {}, .uid = 1000}};
+  if (profile_ == Profile::Multiple) {
+    result += {.username = "bob", .display_name = "Bob Chen", .avatar = {}, .uid = 1001};
+    result += {.username = "charlie", .display_name = "Charlie Rivera", .avatar = {}, .uid = 1002};
+  }
+  return result;
+}
+
 QList<User> SystemAccountSource::users(const QStringList& include, int min_uid, int max_uid,
                                        const QStringList& exclude) {
   QList<User> result;

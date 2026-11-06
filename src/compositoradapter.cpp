@@ -5,8 +5,9 @@
 #include <algorithm>
 
 namespace Greeter {
-CompositorAdapter::CompositorAdapter(Config config, QObject* parent)
+CompositorAdapter::CompositorAdapter(Config config, bool demo, QObject* parent)
     : QObject(parent),
+      demo_(demo),
       backend_(qEnvironmentVariable("HOLONIGHT_GREETER_BACKEND", config.compositor_backend)),
       legacyLabel_(std::move(config.keyboard_label)),
       layouts_(std::move(config.keyboard_layouts)) {
@@ -18,7 +19,7 @@ CompositorAdapter::CompositorAdapter(Config config, QObject* parent)
   }
 }
 
-bool CompositorAdapter::canCycleLayout() const { return backend_ == "hyprland" && layouts_.size() > 1; }
+bool CompositorAdapter::canCycleLayout() const { return (demo_ || backend_ == "hyprland") && layouts_.size() > 1; }
 QString CompositorAdapter::keyboardLabel() const {
   return layouts_.isEmpty() ? legacyLabel_ : layouts_[current_].label;
 }
@@ -40,7 +41,7 @@ bool CompositorAdapter::cycleLayout() {
   return selectLayout(layouts_[(current_ + 1) % layouts_.size()].id);
 }
 bool CompositorAdapter::selectLayout(const QString& identifier) {
-  if (backend_ != "hyprland") {
+  if (!demo_ && backend_ != "hyprland") {
     return false;
   }
   const auto found = std::ranges::find(layouts_, identifier, &KeyboardLayout::id);
@@ -51,11 +52,13 @@ bool CompositorAdapter::selectLayout(const QString& identifier) {
   if (index == current_) {
     return true;
   }
-  QProcess ipc;
-  ipc.start("hyprctl", {"switchxkblayout", "all", QString::number(index)});
-  if (!ipc.waitForStarted(1000) || !ipc.waitForFinished(2000) || ipc.exitStatus() != QProcess::NormalExit ||
-      ipc.exitCode() != 0) {
-    return false;
+  if (!demo_) {
+    QProcess ipc;
+    ipc.start("hyprctl", {"switchxkblayout", "all", QString::number(index)});
+    if (!ipc.waitForStarted(1000) || !ipc.waitForFinished(2000) || ipc.exitStatus() != QProcess::NormalExit ||
+        ipc.exitCode() != 0) {
+      return false;
+    }
   }
   current_ = index;
   emit layoutChanged();

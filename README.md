@@ -40,13 +40,30 @@ their HoloNight visuals. Installed QML discovery is relative to the executable.
 Run the greeter as a regular window from an existing graphical session:
 
 ```sh
-# For the privately staged Task build:
-export LD_LIBRARY_PATH="$PWD/build/deps/prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+task demo
+task demo -- --demo-users single
+task demo -- --demo-users multiple
+
+# Other direct CLI scenarios after building:
 ./build/dev/holonight-greeter --demo
 ./build/dev/holonight-greeter --demo-scenario wrong-password
 ./build/dev/holonight-greeter --demo-scenario otp
 ./build/dev/holonight-greeter --demo-scenario fingerprint
 ```
+
+`task demo` builds the selected `PRESET` (default `dev`) using installed packages, then opens the
+`wrong-password` scenario. Every login attempt shows **Authentication failed**, with retries available.
+Power actions show confirmations and simulated messages. Keyboard selection only updates the displayed
+layout; it does not change the host keyboard or run `hyprctl`. No greetd connection, session start, state
+write, or power-service call is made. For an additional installed development prefix, configure with
+`cmake --preset dev -DCMAKE_PREFIX_PATH=/path/to/prefix` before running the task.
+
+The optional `--demo-users single|multiple` replaces local account discovery with one or three fictional
+accounts (Alice Morgan, Bob Chen, and Charlie Rivera), using the built-in fallback avatar. Fixture accounts
+ignore configured user filters so their count is predictable. One account leaves the name visible with the
+selector disabled; multiple accounts enable the dropdown and account switching. Omit the option to keep
+local account discovery. Direct CLI use requires `--demo` or `--demo-scenario`; invalid profiles and use
+outside demo mode are rejected. No system accounts are created or modified.
 
 Supported scenarios are `default`, `wrong-password`, `otp`, and `fingerprint`; specifying a scenario implies
 `--demo`. The demo uses configured read-only account and session discovery, including local display names and
