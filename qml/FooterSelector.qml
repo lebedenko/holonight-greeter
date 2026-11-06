@@ -21,7 +21,7 @@ HnIconComboBox {
     font.pointSize: 13.5
     hoverEnabled: true
     leftPadding: 14
-    rightPadding: 34
+    rightPadding: 44
 
     contentItem: RowLayout {
         spacing: 10
@@ -48,7 +48,7 @@ HnIconComboBox {
         x: root.width - width - 14
         anchors.verticalCenter: parent.verticalCenter
         source: Qt.resolvedUrl("icons/chevron-down.svg")
-        size: 12
+        size: 24
         iconState: root.enabled ? HnIcon.Normal : HnIcon.Disabled
     }
 

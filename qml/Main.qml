@@ -312,11 +312,17 @@ Controls.ApplicationWindow {
             id: action
             anchors.fill: parent
             enabled: actionFrame.enabled
-            padding: 17 * root.referenceScale
-            contentItem: HnIcon {
-                source: actionFrame.iconSource
-                size: 28
-                iconState: action.enabled ? HnIcon.Normal : HnIcon.Disabled
+            padding: 0
+            horizontalPadding: 0
+            verticalPadding: 0
+            contentItem: Item {
+                HnIcon {
+                    objectName: "systemActionIcon"
+                    anchors.centerIn: parent
+                    source: actionFrame.iconSource
+                    size: Math.round(32 * root.referenceScale)
+                    iconState: action.enabled ? HnIcon.Normal : HnIcon.Disabled
+                }
             }
             Accessible.name: actionFrame.description
             Controls.ToolTip.visible: hovered

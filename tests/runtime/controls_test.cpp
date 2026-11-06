@@ -370,9 +370,10 @@ TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
   auto* reboot = object("rebootButton");
   auto* poweroff = object("powerButton");
   EXPECT_EQ(reboot->property("width"), poweroff->property("width"));
-  EXPECT_EQ(evaluate(poweroff, "focusTarget.contentItem.size").toInt(), 28);
-  EXPECT_EQ(evaluate(reboot, "focusTarget.contentItem.size").toInt(), 28);
   for (auto* action : {reboot, poweroff}) {
+    auto* icon = action->findChild<QQuickItem*>("systemActionIcon");
+    ASSERT_NE(icon, nullptr);
+    EXPECT_EQ(icon->property("size").toInt(), 32);
     EXPECT_EQ(evaluate(action, "children[0].data[0].fillColor").value<QColor>().alpha(), 0);
     EXPECT_GT(evaluate(action, "children[0].data[0].strokeWidth").toDouble(), 0);
   }
@@ -380,8 +381,39 @@ TEST_F(RuntimeControls, SemanticDisabledFooterAndPowerPresentation) {
   EXPECT_EQ(power.reboots, 0);
 }
 
+TEST_F(RuntimeControls, PowerIconsRemainSquareAndCenteredAtWindowScales) {
+  load();
+  power.capabilitiesNow(true, true);
+  for (const QSize size : {QSize(1672, 941), QSize(2090, 1176)}) {
+    SCOPED_TRACE(QString("%1x%2").arg(size.width()).arg(size.height()).toStdString());
+    window->resize(size);
+    QCoreApplication::processEvents();
+    const int expectedSize = size.width() == 1672 ? 32 : 40;
+    for (const auto* name : {"rebootButton", "powerButton"}) {
+      SCOPED_TRACE(name);
+      auto* button = focusItem(name);
+      ASSERT_NE(button, nullptr);
+      const double expectedButtonSize = 62 * window->property("referenceScale").toDouble();
+      EXPECT_DOUBLE_EQ(button->width(), expectedButtonSize);
+      EXPECT_DOUBLE_EQ(button->height(), expectedButtonSize);
+      auto* icon = object(name)->findChild<QQuickItem*>("systemActionIcon");
+      ASSERT_NE(icon, nullptr);
+      ASSERT_TRUE(QTest::qWaitFor([&] { return icon->width() == expectedSize && icon->height() == expectedSize; }));
+      const auto center = icon->mapToItem(button, QPointF(icon->width() / 2, icon->height() / 2));
+      EXPECT_NEAR(center.x(), button->width() / 2, 0.5);
+      EXPECT_NEAR(center.y(), button->height() / 2, 0.5);
+    }
+  }
+  captureDemo("power-icons");
+}
+
 TEST_F(RuntimeControls, AccountFeedbackAndContentSizedFooter) {
   load();
+  for (const auto* name : {"userSelector", "keyboardSelector", "sessionSelector"}) {
+    auto* selector = object(name);
+    EXPECT_EQ(evaluate(selector, "indicator.width").toInt(), 24);
+    EXPECT_EQ(evaluate(selector, "indicator.height").toInt(), 24);
+  }
   auto* account = focusItem("userSelector");
   EXPECT_EQ(evaluate(account, "background.color").value<QColor>().alpha(), 0);
   EXPECT_EQ(evaluate(account, "background.border.width").toInt(), 0);

@@ -117,7 +117,7 @@ Item {
                 x: userSelector.width - width - 14
                 anchors.verticalCenter: parent.verticalCenter
                 source: Qt.resolvedUrl("icons/chevron-down.svg")
-                size: 12
+                size: 24
                 iconState: userSelector.enabled ? HnIcon.Normal : HnIcon.Disabled
             }
             background: Rectangle {
